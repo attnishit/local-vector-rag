@@ -60,21 +60,31 @@ coverage.xml
 logs/
 *.log
 
-# Data files (keep structure, ignore content)
-data/raw/*.txt
-data/raw/*.pdf
-data/raw/*.docx
-data/raw/*.md
-data/processed/
-data/embeddings/
-data/indexes/
+# Data files - Ignore all generated/user data
+# Only keep .gitkeep files to maintain directory structure
+data/*
+!data/.gitkeep
+!data/*/
 
-# Keep sample files
+# Keep raw directory structure but ignore user files
+data/raw/*
+!data/raw/.gitkeep
 !data/raw/samples/
-!data/raw/samples/*.txt
-!data/raw/samples/*.pdf
-!data/raw/samples/*.docx
-!data/raw/samples/*.md
+
+# Keep sample files for demo/testing
+data/raw/samples/*
+!data/raw/samples/.gitkeep
+
+# Ignore all generated data
+data/processed/**/*
+!data/processed/.gitkeep
+data/embeddings/**/*
+!data/embeddings/.gitkeep
+data/indexes/**/*
+!data/indexes/.gitkeep
+
+# Ignore collections metadata
+data/collections.json
 
 # Environment variables
 .env

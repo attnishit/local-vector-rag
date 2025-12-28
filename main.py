@@ -33,6 +33,18 @@ Usage:
     # Test query pipeline (Stage 9)
     python main.py query-demo "What is vector search?"
 
+    # Create embeddings for all files in a directory
+    python main.py index data/raw/samples --name my_docs --algorithm hnsw
+
+    # Create and test search
+    python main.py index --test-query "machine learning"
+
+    # Search an existing collection
+    python main.py search "machine learning" --collection my_docs --top-k 5
+
+    # List all collections
+    python main.py list
+
     # Future usage (Stages 10+):
     python main.py query "What is vector search?" --generate
 """
@@ -71,6 +83,7 @@ from src.benchmarks import (
     print_comparison_summary,
     export_to_json,
 )
+from src.collection import create_collection, load_collection, list_collections
 
 
 def print_banner(project_name: str, version: str) -> None:
@@ -103,8 +116,11 @@ def validate_setup(config, logger):
     logger.info("  python main.py                      - Validate setup")
     logger.info("  python main.py preview <file>       - Preview chunks from file")
     logger.info('  python main.py embed-demo "text"    - Demo embedding generation')
-    logger.info('  python main.py search-demo "query" - Demo vector search')
-    logger.info('  python main.py query-demo "query"  - Demo query pipeline')
+    logger.info(
+        "  python main.py index <dir>          - Create embeddings for all docs in directory"
+    )
+    logger.info('  python main.py search "query"       - Search an existing collection')
+    logger.info("  python main.py list                 - List all collections")
     logger.info("  python main.py benchmark           - Run performance benchmarks")
     logger.info("=" * 60)
 
@@ -300,173 +316,117 @@ def cmd_embed_demo(args, config, logger):
         return 1
 
 
-def cmd_search_demo(args, config, logger):
+def cmd_index(args, config, logger):
     """
-    Demonstrate end-to-end vector search (Stage 4).
+    Create embeddings for all documents in a directory.
 
-    This command shows the complete pipeline:
-    1. Create sample document chunks
-    2. Generate embeddings for chunks
-    3. Build vector store
-    4. Generate query embedding
-    5. Search for similar chunks
+    This command:
+    1. Loads all documents from the specified directory
+    2. Chunks them according to config
+    3. Generates embeddings for all chunks
+    4. Saves everything to disk
+    5. Builds a searchable vector index
 
     Args:
         args: Parsed command-line arguments
         config: Configuration dictionary
         logger: Logger instance
     """
-    query_text = args.query
+    directory = Path(args.directory)
+    collection_name = args.name
+    algorithm = args.algorithm
 
-    logger.info(f'Search demo for query: "{query_text}"')
-
-    # Get config
-    model_name = config["embeddings"]["model_name"]
-    device = config["embeddings"]["device"]
-    normalize = config["embeddings"]["normalize"]
-    dimension = config["embeddings"]["dimension"]
-    similarity_metric = config["vectorstore"]["similarity_metric"]
-    top_k = args.top_k
+    logger.info(f"Creating collection '{collection_name}' from directory: {directory}")
 
     print(f"\n{'=' * 80}")
-    print("Vector Search Demo (Stage 4)")
+    print(f"Creating Collection: {collection_name}")
     print(f"{'=' * 80}")
     print(f"\nConfiguration:")
-    print(f"  Model: {model_name}")
-    print(f"  Similarity metric: {similarity_metric}")
-    print(f"  Top-k results: {top_k}")
+    print(f"  Directory: {directory}")
+    print(f"  Algorithm: {algorithm}")
+    print(f"  Model: {config['embeddings']['model_name']}")
+    print(f"  Chunk size: {config['ingestion']['chunk_size']}")
+    print(f"  Chunk overlap: {config['ingestion']['chunk_overlap']}")
+    print(f"  Supported formats: {', '.join(config['ingestion']['supported_formats'])}")
 
-    # Create sample chunks (simulate a small knowledge base)
-    print(f"\nCreating sample knowledge base...")
-    logger.info("Creating sample chunks")
+    # Check directory exists
+    if not directory.exists():
+        logger.error(f"Directory not found: {directory}")
+        print(f"\n✗ ERROR: Directory not found: {directory}", file=sys.stderr)
+        return 1
 
-    sample_chunks = [
-        {
-            "chunk_id": "doc1_chunk_0",
-            "text": "Vector search is a technique for finding similar items using embeddings.",
-            "doc_id": "doc1",
-        },
-        {
-            "chunk_id": "doc1_chunk_1",
-            "text": "Machine learning models convert text into dense vector representations.",
-            "doc_id": "doc1",
-        },
-        {
-            "chunk_id": "doc2_chunk_0",
-            "text": "Cosine similarity measures the angle between two vectors in space.",
-            "doc_id": "doc2",
-        },
-        {
-            "chunk_id": "doc2_chunk_1",
-            "text": "Nearest neighbor search finds the most similar vectors in a database.",
-            "doc_id": "doc2",
-        },
-        {
-            "chunk_id": "doc3_chunk_0",
-            "text": "Python is a popular programming language for data science and AI.",
-            "doc_id": "doc3",
-        },
-        {
-            "chunk_id": "doc3_chunk_1",
-            "text": "HNSW is an approximate nearest neighbor algorithm for large datasets.",
-            "doc_id": "doc3",
-        },
-    ]
-
-    print(f"  Created {len(sample_chunks)} sample chunks")
-
-    # Load embedding model
-    print(f"\nLoading embedding model...")
-    logger.info(f"Loading model: {model_name}")
+    if not directory.is_dir():
+        logger.error(f"Not a directory: {directory}")
+        print(f"\n✗ ERROR: Not a directory: {directory}", file=sys.stderr)
+        return 1
 
     try:
-        model = load_embedding_model(model_name, device=device)
-        print(f"✓ Model loaded (dimension: {dimension})")
+        print(f"\nCreating collection (this may take a few minutes)...")
+        print(f"{'=' * 80}\n")
 
-        # Generate embeddings for chunks
-        print(f"\nGenerating embeddings for {len(sample_chunks)} chunks...")
-        logger.info("Generating chunk embeddings")
-
-        chunks_with_embeddings = embed_chunks(model, sample_chunks, normalize=normalize)
-
-        print(f"✓ Generated {len(chunks_with_embeddings)} embeddings")
-
-        # Create vector store
-        print(f"\nBuilding vector store...")
-        logger.info("Creating BruteForceVectorStore")
-
-        store = BruteForceVectorStore(
-            dimension=dimension,
-            similarity_metric=similarity_metric,
-            normalized=normalize,
+        # Create collection
+        collection = create_collection(
+            name=collection_name,
+            documents_dir=directory,
+            algorithm=algorithm,
+            config=config,
+            show_progress=True,
         )
 
-        # Add chunks to store
-        for chunk in chunks_with_embeddings:
-            store.add(
-                chunk["embedding"],
-                metadata={
-                    "chunk_id": chunk["chunk_id"],
-                    "text": chunk["text"],
-                    "doc_id": chunk["doc_id"],
-                },
-            )
+        # Get collection info
+        info = collection.info()
 
-        print(f"✓ Added {len(store)} vectors to store")
-        stats = store.statistics()
-        print(f"  Memory usage: {stats['memory_mb']:.2f} MB")
-
-        # Generate query embedding
-        print(f"\nGenerating query embedding...")
-        print(f'  Query: "{query_text}"')
-        logger.info(f"Generating query embedding")
-
-        query_embedding = embed_texts(model, [query_text], normalize=normalize)[0]
-        print(f"✓ Query embedding generated (shape: {query_embedding.shape})")
-
-        # Search
-        print(f"\nSearching for top-{top_k} similar chunks...")
-        logger.info(f"Searching with brute-force (metric={similarity_metric})")
-
-        results = store.search(query_embedding, k=top_k)
-
-        print(f"✓ Found {len(results)} results")
-
-        # Display results
         print(f"\n{'=' * 80}")
-        print(f"Search Results (Top {len(results)}):")
-        print(f"{'=' * 80}\n")
-
-        for i, result in enumerate(results):
-            print(f"Result {i + 1}:")
-            print(f"  Score: {result['score']:.4f}")
-            print(f"  Chunk ID: {result['metadata']['chunk_id']}")
-            print(f"  Doc ID: {result['metadata']['doc_id']}")
-            print(f"  Text: {result['metadata']['text']}")
-            print()
-
-        # Verify correctness
+        print("✓ Collection Created Successfully!")
         print(f"{'=' * 80}")
-        print("Stage 4 Exit Criteria:")
-        print(f"  ✓ Vector store created successfully")
-        print(f"  ✓ Search returns top-k results (k={top_k})")
-        print(f"  ✓ Results ranked by similarity (descending)")
+        print(f"\nCollection Statistics:")
+        print(f"  Name: {info['name']}")
+        print(f"  Algorithm: {info['algorithm']}")
+        print(f"  Documents: {info['num_documents']}")
+        print(f"  Chunks: {info['num_chunks']}")
+        print(f"  Embeddings: {info['num_embeddings']}")
 
-        # Check that scores are descending
-        scores = [r["score"] for r in results]
-        is_sorted = all(scores[i] >= scores[i + 1] for i in range(len(scores) - 1))
-        if is_sorted:
-            print(f"  ✓ Scores are correctly sorted: {[f'{s:.3f}' for s in scores]}")
-        else:
-            print(f"  ✗ Warning: Scores not sorted correctly!")
+        if "index" in info and info["index"]:
+            print(f"\nIndex Statistics:")
+            for key, value in info["index"].items():
+                print(f"  {key}: {value}")
 
+        print(f"\nData saved to:")
+        print(f"  Chunks: data/processed/")
+        print(f"  Embeddings: data/embeddings/{collection_name}.npz")
+        print(f"  Index: data/indexes/{algorithm}/{collection_name}/")
+        print(f"  Metadata: data/collections.json")
+
+        # Test search if requested
+        if args.test_query:
+            print(f"\n{'=' * 80}")
+            print(f'Testing Search with Query: "{args.test_query}"')
+            print(f"{'=' * 80}\n")
+
+            results = collection.search(args.test_query, k=3)
+
+            if results:
+                for i, result in enumerate(results, 1):
+                    print(f"Result {i}:")
+                    print(f"  Score: {result['score']:.4f}")
+                    print(f"  Chunk ID: {result['metadata']['chunk_id']}")
+                    print(f"  Text: {result['metadata']['text'][:150]}...")
+                    print()
+            else:
+                print("No results found.")
+
+        print(f"{'=' * 80}")
+        print("\nTo search this collection later, use:")
+        print(f"  from src.collection import load_collection")
+        print(f"  collection = load_collection('{collection_name}')")
+        print(f"  results = collection.search('your query', k=5)")
         print(f"{'=' * 80}\n")
 
-        logger.info("Search demo complete")
+        logger.info(f"Collection '{collection_name}' created successfully")
         return 0
 
     except Exception as e:
-        logger.error(f"Search demo failed: {e}")
+        logger.error(f"Failed to create collection: {e}")
         print(f"\n✗ Error: {e}\n", file=sys.stderr)
         import traceback
 
@@ -474,243 +434,153 @@ def cmd_search_demo(args, config, logger):
         return 1
 
 
-def cmd_query_demo(args, config, logger):
+def cmd_search(args, config, logger):
     """
-    Demonstrate end-to-end query pipeline (Stage 9).
-
-    This command shows the complete query pipeline:
-    1. Create sample document chunks
-    2. Generate embeddings for chunks
-    3. Build vector store (BruteForce or HNSW)
-    4. Create query pipeline
-    5. Query and get formatted results
+    Search an existing collection.
 
     Args:
         args: Parsed command-line arguments
         config: Configuration dictionary
         logger: Logger instance
     """
+    collection_name = args.collection
     query_text = args.query
-
-    logger.info(f'Query pipeline demo for query: "{query_text}"')
-
-    # Get config
-    model_name = config["embeddings"]["model_name"]
-    device = config["embeddings"]["device"]
-    normalize = config["embeddings"]["normalize"]
-    dimension = config["embeddings"]["dimension"]
-    similarity_metric = config["vectorstore"]["similarity_metric"]
-    algorithm = args.algorithm
     top_k = args.top_k
     min_score = args.min_score
 
+    logger.info(f"Searching collection '{collection_name}' for: {query_text}")
+
     print(f"\n{'=' * 80}")
-    print("Query Pipeline Demo (Stage 9)")
+    print(f"Searching Collection: {collection_name}")
     print(f"{'=' * 80}")
-    print(f"\nConfiguration:")
-    print(f"  Model: {model_name}")
-    print(f"  Vector store algorithm: {algorithm}")
-    print(f"  Similarity metric: {similarity_metric}")
-    print(f"  Top-k results: {top_k}")
-    print(f"  Min score threshold: {min_score}")
-
-    # Create sample knowledge base
-    print(f"\nCreating sample knowledge base...")
-    logger.info("Creating sample chunks")
-
-    sample_chunks = [
-        {
-            "chunk_id": "doc1_chunk_0",
-            "text": "Vector search is a technique for finding similar items using embeddings. It converts text into dense numerical vectors.",
-            "doc_id": "doc1",
-        },
-        {
-            "chunk_id": "doc1_chunk_1",
-            "text": "Machine learning models convert text into dense vector representations. These embeddings capture semantic meaning.",
-            "doc_id": "doc1",
-        },
-        {
-            "chunk_id": "doc2_chunk_0",
-            "text": "Cosine similarity measures the angle between two vectors in space. It's commonly used for semantic similarity.",
-            "doc_id": "doc2",
-        },
-        {
-            "chunk_id": "doc2_chunk_1",
-            "text": "Nearest neighbor search finds the most similar vectors in a database. It's a fundamental operation in vector search.",
-            "doc_id": "doc2",
-        },
-        {
-            "chunk_id": "doc3_chunk_0",
-            "text": "Python is a popular programming language for data science and AI. It has excellent libraries for machine learning.",
-            "doc_id": "doc3",
-        },
-        {
-            "chunk_id": "doc3_chunk_1",
-            "text": "HNSW (Hierarchical Navigable Small World) is an approximate nearest neighbor algorithm for large datasets.",
-            "doc_id": "doc3",
-        },
-        {
-            "chunk_id": "doc4_chunk_0",
-            "text": "Retrieval-Augmented Generation combines vector search with language models to produce accurate answers.",
-            "doc_id": "doc4",
-        },
-        {
-            "chunk_id": "doc4_chunk_1",
-            "text": "Document embeddings enable semantic search that understands meaning rather than just keywords.",
-            "doc_id": "doc4",
-        },
-    ]
-
-    print(f"  Created {len(sample_chunks)} sample chunks")
-
-    # Load embedding model
-    print(f"\nLoading embedding model...")
-    logger.info(f"Loading model: {model_name}")
+    print(f'\nQuery: "{query_text}"')
+    print(f"Top-k: {top_k}")
+    print(f"Min score: {min_score}")
 
     try:
-        model = load_embedding_model(model_name, device=device)
-        print(f"✓ Model loaded (dimension: {dimension})")
+        # Load the collection
+        print(f"\nLoading collection '{collection_name}'...")
+        collection = load_collection(collection_name, config=config)
 
-        # Generate embeddings for chunks
-        print(f"\nGenerating embeddings for {len(sample_chunks)} chunks...")
-        logger.info("Generating chunk embeddings")
+        info = collection.info()
+        print(f"✓ Collection loaded")
+        print(f"  Documents: {info['num_documents']}")
+        print(f"  Chunks: {info['num_chunks']}")
+        print(f"  Embeddings: {info['num_embeddings']}")
+        print(f"  Algorithm: {info['algorithm']}")
 
-        chunks_with_embeddings = embed_chunks(model, sample_chunks, normalize=normalize)
+        # Perform search
+        print(f"\nSearching...")
+        logger.info(f"Executing search query: {query_text}")
 
-        print(f"✓ Generated {len(chunks_with_embeddings)} embeddings")
+        ef_search = args.ef_search if hasattr(args, "ef_search") else None
+        results = collection.search(query_text, k=top_k, ef_search=ef_search)
 
-        # Create vector store based on algorithm choice
-        print(f"\nBuilding {algorithm} vector store...")
-        logger.info(f"Creating {algorithm} vector store")
+        # Filter by min_score if specified
+        if min_score > 0:
+            results = [r for r in results if r["score"] >= min_score]
 
-        if algorithm == "hnsw":
-            # Create HNSW index
-            m = config["vectorstore"]["hnsw"]["m"]
-            ef_construction = config["vectorstore"]["hnsw"]["ef_construction"]
-            ef_search = config["vectorstore"]["hnsw"]["ef_search"]
-
-            vector_store = create_hnsw_index(
-                dimension=dimension,
-                m=m,
-                ef_construction=ef_construction,
-                ef_search=ef_search,
-                similarity_metric=similarity_metric,
-                seed=42,
-            )
-
-            # Insert vectors
-            for chunk in chunks_with_embeddings:
-                vector_store.insert(
-                    chunk["embedding"],
-                    metadata={
-                        "chunk_id": chunk["chunk_id"],
-                        "doc_id": chunk["doc_id"],
-                        "text": chunk["text"],
-                    },
-                )
-
-            print(f"✓ HNSW index built (m={m}, ef_construction={ef_construction})")
-            print(f"  - {len(vector_store)} vectors indexed")
-            print(f"  - {vector_store.level_count} layers")
-
-        else:
-            # Create BruteForce index
-            vector_store = BruteForceVectorStore(
-                dimension=dimension, similarity_metric=similarity_metric
-            )
-
-            # Add vectors
-            for chunk in chunks_with_embeddings:
-                vector_store.add(
-                    chunk["embedding"],
-                    metadata={
-                        "chunk_id": chunk["chunk_id"],
-                        "doc_id": chunk["doc_id"],
-                        "text": chunk["text"],
-                    },
-                )
-
-            print(f"✓ Brute-force index built")
-            print(f"  - {len(vector_store)} vectors indexed")
-
-        # Create query pipeline
-        print(f"\nCreating query pipeline...")
-        logger.info("Creating query pipeline")
-
-        query_config = {
-            "top_k": top_k,
-            "min_score": min_score,
-            "normalize": normalize,
-            "ef_search": (
-                config["vectorstore"]["hnsw"]["ef_search"] if algorithm == "hnsw" else None
-            ),
-        }
-
-        pipeline = create_query_pipeline(model, vector_store, query_config)
-        print(f"✓ Query pipeline created")
-
-        # Execute query
-        print(f"\n{'=' * 80}")
-        print(f'Executing Query: "{query_text}"')
-        print(f"{'=' * 80}\n")
-
-        logger.info(f"Executing query: {query_text}")
-        results = pipeline.query(query_text, k=top_k, min_score=min_score)
+        print(f"✓ Found {len(results)} results")
 
         # Display results
-        print(f"Query Results (Top {len(results)}):")
+        print(f"\n{'=' * 80}")
+        print(f"Search Results (Top {len(results)})")
         print(f"{'=' * 80}\n")
 
         if not results:
             print("No results found above the minimum score threshold.")
         else:
-            for i, result in enumerate(results):
-                print(f"Result {i + 1}:")
+            for i, result in enumerate(results, 1):
+                print(f"Result {i}:")
                 print(f"  Score: {result['score']:.4f}")
-                print(f"  Distance: {result['distance']:.4f}")
                 print(f"  Chunk ID: {result['metadata']['chunk_id']}")
                 print(f"  Doc ID: {result['metadata']['doc_id']}")
-                print(f"  Text: {result['metadata']['text'][:150]}...")
+                print(f"  Text: {result['metadata']['text'][:200]}...")
                 print()
 
-        # Test JSON output
-        print(f"{'=' * 80}")
-        print("JSON Output Format:")
-        print(f"{'=' * 80}\n")
+        # Export to JSON if requested
+        if args.output:
+            import json
 
-        json_output = pipeline.query_to_json(query_text, k=3, min_score=min_score, indent=2)
-        print(json_output[:500] + "..." if len(json_output) > 500 else json_output)
-
-        # Verify exit criteria
-        print(f"\n{'=' * 80}")
-        print("Stage 9 Exit Criteria:")
-        print(f"  ✓ Query pipeline created successfully")
-        print(f"  ✓ Query embedding generated")
-        print(f"  ✓ Vector search performed ({algorithm})")
-        print(f"  ✓ Results ranked by similarity (descending)")
-        print(f"  ✓ JSON output format working")
-        print(f"  ✓ Min score filtering applied (threshold={min_score})")
-
-        # Check that scores are descending
-        if results:
-            scores = [r["score"] for r in results]
-            is_sorted = all(scores[i] >= scores[i + 1] for i in range(len(scores) - 1))
-            if is_sorted:
-                print(f"  ✓ Scores are correctly sorted: {[f'{s:.3f}' for s in scores[:5]]}")
-            else:
-                print(f"  ✗ Warning: Scores not sorted correctly!")
+            output_data = {
+                "query": query_text,
+                "collection": collection_name,
+                "num_results": len(results),
+                "results": results,
+            }
+            with open(args.output, "w") as f:
+                json.dump(output_data, f, indent=2)
+            print(f"✓ Results exported to {args.output}")
 
         print(f"{'=' * 80}\n")
-
-        logger.info("Query pipeline demo complete")
+        logger.info(f"Search complete: {len(results)} results")
         return 0
 
+    except FileNotFoundError:
+        logger.error(f"Collection '{collection_name}' not found")
+        print(f"\n✗ ERROR: Collection '{collection_name}' not found", file=sys.stderr)
+        print(f"\nAvailable collections:", file=sys.stderr)
+        collections = list_collections(config=config)
+        if collections:
+            for coll in collections:
+                print(f"  - {coll['name']}", file=sys.stderr)
+        else:
+            print(f"  No collections created yet. Create one with:", file=sys.stderr)
+            print(f"  python main.py index <directory>", file=sys.stderr)
+        return 1
+
     except Exception as e:
-        logger.error(f"Query demo failed: {e}")
+        logger.error(f"Search failed: {e}")
         print(f"\n✗ Error: {e}\n", file=sys.stderr)
         import traceback
 
         traceback.print_exc()
+        return 1
+
+
+def cmd_list_collections(args, config, logger):
+    """
+    List all collections.
+
+    Args:
+        args: Parsed command-line arguments
+        config: Configuration dictionary
+        logger: Logger instance
+    """
+    logger.info("Listing all collections")
+
+    print(f"\n{'=' * 80}")
+    print("Collections")
+    print(f"{'=' * 80}\n")
+
+    try:
+        collections = list_collections(config=config)
+
+        if not collections:
+            print("No collections found.")
+            print("\nCreate a collection with:")
+            print("  python main.py index <directory> --name <collection_name>")
+        else:
+            print(f"Found {len(collections)} collection(s):\n")
+            for i, coll in enumerate(collections, 1):
+                print(f"{i}. {coll['name']}")
+                print(f"   Algorithm: {coll['algorithm']}")
+                print(f"   Documents: {coll['num_documents']}")
+                print(f"   Chunks: {coll['num_chunks']}")
+                print(f"   Embeddings: {coll['num_embeddings']}")
+                print(f"   Created: {coll.get('created_at', 'N/A')}")
+                print()
+
+            print(f"To search a collection:")
+            print(f'  python main.py search "your query" --collection <name>')
+
+        print(f"{'=' * 80}\n")
+        logger.info(f"Listed {len(collections)} collections")
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to list collections: {e}")
+        print(f"\n✗ Error: {e}\n", file=sys.stderr)
         return 1
 
 
@@ -909,6 +779,71 @@ Examples:
             help="Vector search algorithm to use (default: brute_force)",
         )
 
+        # Index command - Create embeddings for directory
+        index_parser = subparsers.add_parser(
+            "index", help="Create embeddings for all documents in a directory"
+        )
+        index_parser.add_argument(
+            "directory",
+            type=str,
+            nargs="?",
+            default="data/raw/samples",
+            help="Path to directory containing documents (default: data/raw/samples)",
+        )
+        index_parser.add_argument(
+            "--name",
+            type=str,
+            default="my_collection",
+            help="Name for the collection (default: my_collection)",
+        )
+        index_parser.add_argument(
+            "--algorithm",
+            type=str,
+            choices=["brute_force", "hnsw"],
+            default="hnsw",
+            help="Vector search algorithm to use (default: hnsw)",
+        )
+        index_parser.add_argument(
+            "--test-query",
+            type=str,
+            help="Optional test query to run after indexing",
+        )
+
+        # Search command - Search existing collection
+        search_parser = subparsers.add_parser("search", help="Search an existing collection")
+        search_parser.add_argument("query", type=str, help="Query text to search for")
+        search_parser.add_argument(
+            "--collection",
+            type=str,
+            default="my_collection",
+            help="Name of the collection to search (default: my_collection)",
+        )
+        search_parser.add_argument(
+            "--top-k",
+            type=int,
+            default=5,
+            help="Number of results to return (default: 5)",
+        )
+        search_parser.add_argument(
+            "--min-score",
+            type=float,
+            default=0.0,
+            help="Minimum similarity score threshold (default: 0.0)",
+        )
+        search_parser.add_argument(
+            "--ef-search",
+            type=int,
+            help="HNSW ef_search parameter (higher = more accurate, slower)",
+        )
+        search_parser.add_argument(
+            "--output",
+            type=str,
+            help="Export results to JSON file",
+        )
+
+        # List command - List all collections
+        list_parser = subparsers.add_parser("list", help="List all collections")
+
         # Benchmark command (Stage 11)
         benchmark_parser = subparsers.add_parser(
             "benchmark", help="Run performance benchmarks (Stage 11)"
@@ -994,10 +929,12 @@ Examples:
             return cmd_preview(args, config, logger)
         elif args.command == "embed-demo":
             return cmd_embed_demo(args, config, logger)
-        elif args.command == "search-demo":
-            return cmd_search_demo(args, config, logger)
-        elif args.command == "query-demo":
-            return cmd_query_demo(args, config, logger)
+        elif args.command == "index":
+            return cmd_index(args, config, logger)
+        elif args.command == "search":
+            return cmd_search(args, config, logger)
+        elif args.command == "list":
+            return cmd_list_collections(args, config, logger)
         elif args.command == "benchmark":
             return cmd_benchmark(args, config, logger)
         else:
