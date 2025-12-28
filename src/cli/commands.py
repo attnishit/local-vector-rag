@@ -39,40 +39,41 @@ def cmd_preview(args, config: Dict[str, Any], logger) -> int:
 
         # Load document
         print(f"Loading document: {file_path}")
-        text = load_document(file_path)
+        doc = load_document(file_path)
 
-        if not text:
+        if not doc:
             print("✗ ERROR: Document is empty or could not be loaded", file=sys.stderr)
             return 1
 
-        print(f"✓ Loaded {len(text):,} characters\n")
+        print(f"✓ Loaded {doc['size']:,} characters\n")
 
         # Chunk the text
         chunk_size = config["ingestion"]["chunk_size"]
         chunk_overlap = config["ingestion"]["chunk_overlap"]
         print(f"Chunking with size={chunk_size}, overlap={chunk_overlap}...")
 
-        chunks = chunk_text(text, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        chunks = chunk_text(doc['text'], doc['doc_id'], chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         print(f"✓ Created {len(chunks)} chunks\n")
 
         # Statistics
         stats = chunk_statistics(chunks)
         print("Statistics:")
-        print(f"  Total chunks: {stats['total_chunks']}")
-        print(f"  Avg length: {stats['avg_length']:.1f} characters")
-        print(f"  Min length: {stats['min_length']} characters")
-        print(f"  Max length: {stats['max_length']} characters")
-        print(f"  Std dev: {stats['std_length']:.1f} characters\n")
+        print(f"  Total chunks: {stats['num_chunks']}")
+        print(f"  Avg length: {stats['avg_chunk_size']:.1f} characters")
+        print(f"  Min length: {stats['min_chunk_size']} characters")
+        print(f"  Max length: {stats['max_chunk_size']} characters")
+        print(f"  Total chars: {stats['total_chars']:,} characters\n")
 
         # Preview chunks
         num_to_show = min(args.num_chunks, len(chunks))
         print(f"Preview of first {num_to_show} chunk(s):\n")
 
         for i, chunk in enumerate(chunks[:num_to_show], 1):
-            preview = chunk[: args.max_preview_length]
-            if len(chunk) > args.max_preview_length:
+            text_content = chunk['text']
+            preview = text_content[: args.max_preview_length]
+            if len(text_content) > args.max_preview_length:
                 preview += "..."
-            print(f"Chunk {i} ({len(chunk)} chars):")
+            print(f"Chunk {i} ({len(text_content)} chars):")
             print(f"  {preview}\n")
 
         print(f"{'=' * 80}\n")
