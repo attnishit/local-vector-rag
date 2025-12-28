@@ -29,6 +29,7 @@ This project implements the complete RAG pipeline from scratch, focusing on the 
   - **HNSW** — Approximate search based on [Malkov & Yashunin (2018)](https://arxiv.org/abs/1603.09320)
 - 💾 **Persistent Collections** — Disk-based storage with incremental updates
 - 📊 **Benchmarking Suite** — Compare recall, latency, and scalability
+- 🎯 **Production-Ready CLI** — Global `rag` command for seamless workflow (NEW!)
 
 ---
 
@@ -42,23 +43,48 @@ git clone https://github.com/yourusername/rag.git
 cd rag
 python3.11 -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+
+# Install dependencies and CLI
+pip install -e .
 ```
 
-### Basic Usage
+### Using the CLI (Recommended)
+
+The global `rag` command works from anywhere, just like `git` or `docker`:
 
 ```bash
-# 1. Create a searchable collection from your documents
-python main.py index data/raw/samples --name my_docs --algorithm hnsw
+# 1. Validate setup
+rag
 
-# 2. Search your collection
-python main.py search "vector database algorithms" --collection my_docs --top-k 5
+# 2. Create a searchable collection from your documents
+rag index ~/Documents/research --name research_papers --algorithm hnsw
 
-# 3. List all collections
-python main.py list
+# 3. Search your collection
+rag search "vector database algorithms" --collection research_papers --top-k 5
+
+# 4. List all collections
+rag list
+
+# 5. View collection details
+rag info research_papers
 ```
 
 That's it! Your documents are now semantically searchable.
+
+### Alternative: Using Python Scripts
+
+You can also use the original Python interface:
+
+```bash
+# Create a collection
+python main.py index data/raw/samples --name my_docs --algorithm hnsw
+
+# Search
+python main.py search "query text" --collection my_docs --top-k 5
+
+# List collections
+python main.py list
+```
 
 ---
 
@@ -111,7 +137,57 @@ See `src/vectorstore/hnsw.py` for detailed implementation with inline explanatio
 
 ---
 
-## Commands
+## CLI Reference
+
+### Global RAG Command
+
+After installation with `pip install -e .`, the `rag` command becomes available globally. Use it from any directory to manage your document collections.
+
+### Quick Command Reference
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `rag` | Validate system setup | `rag` |
+| `rag index` | Create collection from documents | `rag index ~/docs --name my_collection` |
+| `rag search` | Search a collection | `rag search "query" --collection my_docs` |
+| `rag list` | List all collections | `rag list` |
+| `rag info` | Show collection details | `rag info my_collection` |
+| `rag delete` | Delete a collection | `rag delete old_collection` |
+| `rag preview` | Preview document chunks | `rag preview document.pdf` |
+| `rag benchmark` | Run performance tests | `rag benchmark --dataset-size 1000` |
+
+### Common Options
+
+| Option | Commands | Description |
+|--------|----------|-------------|
+| `--name` | `index` | Collection name |
+| `--algorithm` | `index` | Algorithm: `hnsw` or `brute_force` |
+| `--collection` | `search` | Which collection to search |
+| `--top-k` | `search` | Number of results to return |
+| `--min-score` | `search` | Minimum similarity threshold (0.0-1.0) |
+| `--ef-search` | `search` | HNSW accuracy parameter |
+| `--output` | `search`, `benchmark` | Export results to JSON |
+| `--force` | `delete` | Skip confirmation prompt |
+
+### Getting Help
+
+```bash
+# General help
+rag --help
+
+# Command-specific help
+rag search --help
+rag index --help
+rag benchmark --help
+```
+
+**📖 For detailed CLI documentation, see [CLI User Guide](src/cli/USER_GUIDE.md)**
+
+---
+
+## Commands (Python Script Method)
+
+> **Note:** For CLI commands, see the [CLI Reference](#cli-reference) section above.
 
 ### Index: Create a Collection
 
@@ -225,14 +301,18 @@ python main.py benchmark --compare-sizes --sizes 100,1000,5000,10000
 
 ```
 rag/
-├── main.py                  # CLI entry point
+├── main.py                  # Legacy Python CLI entry point
 ├── config.yaml              # System configuration
 ├── src/
+│   ├── cli/                 # Global CLI command (NEW!)
+│   │   ├── __init__.py      # CLI entry point
+│   │   ├── commands.py      # Command implementations
+│   │   └── USER_GUIDE.md    # Detailed CLI documentation
 │   ├── collection.py        # High-level collection API
 │   ├── ingestion/           # Document loading & chunking
 │   │   ├── loader.py        # Multi-format document loader
 │   │   ├── chunker.py       # Fixed-size chunking with overlap
-│   │   └── extractors.py    # PDF/DOCX/Markdown text extraction
+│   │   └── extractors/      # PDF/DOCX/Markdown text extraction
 │   ├── embeddings/          # Embedding generation
 │   │   ├── model.py         # Sentence-transformers wrapper
 │   │   └── pipeline.py      # Batch embedding with L2 norm
@@ -288,8 +368,23 @@ Key files to read:
 
 ## Use Cases
 
-### 1. Semantic Search Application
-Build a production RAG system:
+### 1. Semantic Search Application (with CLI)
+Build a production RAG system using the global command:
+
+```bash
+# Index your documentation
+rag index ~/company/docs --name company_knowledge --algorithm hnsw
+
+# Search from anywhere
+rag search "How do I configure authentication?" --collection company_knowledge
+
+# Export results for integration
+rag search "API rate limits" --collection company_knowledge --output api_info.json
+```
+
+### 2. Programmatic Access (Python API)
+For custom applications, use the Python API directly:
+
 ```python
 from src.collection import load_collection
 
@@ -300,20 +395,40 @@ collection = load_collection("my_docs")
 results = collection.search("How does HNSW work?", k=5)
 for result in results:
     print(f"Score: {result['score']:.3f}")
-    print(f"Text: {result['text']}\n")
+    print(f"Text: {result['metadata']['text']}\n")
 ```
 
-### 2. Research & Experimentation
+### 3. Research & Experimentation
 - Compare similarity metrics (cosine, L2, dot product)
 - Test different chunking strategies
 - Benchmark custom embedding models
 - Tune HNSW parameters for your dataset
 
-### 3. Educational Tool
+```bash
+# Test different HNSW parameters
+rag search "query" --ef-search 10   # Fast, lower recall
+rag search "query" --ef-search 100  # Slower, higher recall
+
+# Run comprehensive benchmarks
+rag benchmark --compare-sizes --dataset-sizes 1000 5000 10000
+```
+
+### 4. Educational Tool
 Great for teaching:
 - "This is how vector databases work internally"
 - "Here's the tradeoff between exact and approximate search"
 - "Let's visualize the HNSW graph structure"
+
+```bash
+# Show students how documents are chunked
+rag preview research_paper.pdf --num-chunks 10
+
+# Demonstrate embedding generation
+rag embed-demo "machine learning algorithms"
+
+# Compare algorithm performance
+rag benchmark --verbose
+```
 
 ---
 
