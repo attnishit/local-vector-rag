@@ -87,28 +87,29 @@ def get_document_id(filepath: Path) -> str:
     """
     Generate a document ID from a filepath.
 
-    The document ID is the filename without extension, making it:
-    - Human-readable
-    - Stable across runs
-    - Unique within a directory
+    The document ID includes the filename with extension to avoid collisions
+    when multiple files share the same base name (e.g., doc.pdf and doc.txt).
 
     Args:
         filepath: Path to the document file
 
     Returns:
-        Document ID string (filename without extension)
+        Document ID string (filename with extension, sanitized)
 
     Example:
         >>> get_document_id(Path("data/raw/sample_doc.txt"))
-        'sample_doc'
-        >>> get_document_id(Path("/path/to/report_2024.txt"))
-        'report_2024'
+        'sample_doc.txt'
+        >>> get_document_id(Path("/path/to/report.pdf"))
+        'report.pdf'
 
     Note:
-        If you have files with the same name in different subdirectories,
-        consider modifying this to include parent directory in the ID.
+        This ensures unique IDs even when files like "doc.pdf", "doc.docx",
+        and "doc.md" exist in the same directory.
     """
-    return filepath.stem
+    # Use full filename (with extension) to avoid collisions
+    # Replace any problematic characters for filesystem safety
+    doc_id = filepath.name.replace(" ", "_")
+    return doc_id
 
 
 def load_document(filepath: Path, encoding: str = "utf-8") -> Optional[Dict[str, Any]]:
