@@ -92,7 +92,7 @@ class Collection:
     def __init__(
         self,
         name: str,
-        algorithm: str = "brute_force",
+        algorithm: str = "hnsw",
         config: Optional[Dict[str, Any]] = None,
     ):
         """
@@ -158,9 +158,7 @@ class Collection:
         # Load documents
         if documents_dir:
             docs = load_documents_from_directory(
-                documents_dir,
-                supported_formats=supported_formats,
-                recursive=False
+                documents_dir, supported_formats=supported_formats, recursive=False
             )
         elif document_paths:
             docs = [load_document(path) for path in document_paths]
@@ -196,10 +194,7 @@ class Collection:
             if should_rechunk(doc_id, source_file, self.chunks_dir, chunk_config):
                 # Chunk the document
                 chunks = chunk_text(
-                    doc["text"],
-                    doc_id,
-                    chunk_size=chunk_size,
-                    chunk_overlap=chunk_overlap
+                    doc["text"], doc_id, chunk_size=chunk_size, chunk_overlap=chunk_overlap
                 )
 
                 # Save chunks
@@ -235,7 +230,7 @@ class Collection:
                 texts,
                 batch_size=batch_size,
                 normalize=normalize,
-                show_progress=show_progress
+                show_progress=show_progress,
             )
 
             all_new_embeddings = embeddings
@@ -274,7 +269,9 @@ class Collection:
             self._load_or_create_index()
 
         # Add embeddings to index
-        metadata_list = [{"chunk_id": c["chunk_id"], "text": c["text"], "doc_id": c["doc_id"]} for c in chunks]
+        metadata_list = [
+            {"chunk_id": c["chunk_id"], "text": c["text"], "doc_id": c["doc_id"]} for c in chunks
+        ]
 
         if self.algorithm == "brute_force":
             self.index.add_batch(embeddings, metadata=metadata_list)
@@ -310,9 +307,7 @@ class Collection:
 
             # Create new index
             self.index = BruteForceVectorStore(
-                dimension=dimension,
-                similarity_metric=similarity_metric,
-                normalized=normalized
+                dimension=dimension, similarity_metric=similarity_metric, normalized=normalized
             )
             logger.info("Created new brute-force index")
 
@@ -337,7 +332,7 @@ class Collection:
                 ef_construction=ef_construction,
                 ef_search=ef_search,
                 similarity_metric=similarity_metric,
-                normalized=normalized
+                normalized=normalized,
             )
             logger.info("Created new HNSW index")
 
@@ -373,11 +368,7 @@ class Collection:
         # Embed query
         normalize = self.config["embeddings"]["normalize"]
         query_embedding = embed_texts(
-            self.model,
-            [query],
-            batch_size=1,
-            normalize=normalize,
-            show_progress=False
+            self.model, [query], batch_size=1, normalize=normalize, show_progress=False
         )[0]
 
         # Search index
@@ -453,6 +444,7 @@ class Collection:
         index_path = self.indexes_dir / self.name
         if index_path.exists():
             import shutil
+
             shutil.rmtree(index_path)
 
         # Note: We don't delete chunks because they might be shared across collections
@@ -462,6 +454,7 @@ class Collection:
 
 
 # Module-level functions
+
 
 def create_collection(
     name: str,
@@ -496,9 +489,7 @@ def create_collection(
 
     if documents_dir or document_paths:
         collection.add_documents(
-            documents_dir=documents_dir,
-            document_paths=document_paths,
-            show_progress=show_progress
+            documents_dir=documents_dir, document_paths=document_paths, show_progress=show_progress
         )
 
     # Save collection metadata
@@ -592,8 +583,7 @@ def delete_collection(name: str, config: Optional[Dict[str, Any]] = None) -> Non
 
 
 def get_collection_metadata(
-    name: str,
-    config: Optional[Dict[str, Any]] = None
+    name: str, config: Optional[Dict[str, Any]] = None
 ) -> Optional[Dict[str, Any]]:
     """
     Get metadata for a collection without loading it.
