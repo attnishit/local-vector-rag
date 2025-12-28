@@ -50,7 +50,17 @@ pip install -e .
 
 ### Using the CLI (Recommended)
 
-The global `rag` command works from anywhere, just like `git` or `docker`:
+**⚠️ Important**: The `rag` command requires the virtual environment to be activated:
+
+```bash
+# Activate the virtual environment first
+cd /path/to/rag
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# You should see (venv) in your prompt
+```
+
+Once activated, the `rag` command works from anywhere, just like `git` or `docker`:
 
 ```bash
 # 1. Validate setup
@@ -139,9 +149,21 @@ See `src/vectorstore/hnsw.py` for detailed implementation with inline explanatio
 
 ## CLI Reference
 
+> **📖 Complete Documentation**: For detailed CLI documentation including all options, workflows, troubleshooting, and advanced usage, see:
+> - **[Complete CLI User Guide](src/cli/USER_GUIDE.md)** - Comprehensive 1000+ line guide
+
+### Prerequisites
+
+**Important**: Activate your virtual environment before using `rag` commands:
+
+```bash
+cd /path/to/rag
+source venv/bin/activate  # You should see (venv) in your prompt
+```
+
 ### Global RAG Command
 
-After installation with `pip install -e .`, the `rag` command becomes available globally. Use it from any directory to manage your document collections.
+After installation with `pip install -e .` and activating the virtual environment, the `rag` command becomes available. Use it from any directory to manage your document collections.
 
 ### Quick Command Reference
 
