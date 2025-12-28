@@ -292,9 +292,9 @@ class Collection:
             embeddings: New embeddings to add
             chunks: Corresponding chunks with metadata
         """
-        # Create index if it doesn't exist
+        # Create index if it doesn't exist (but don't rebuild - we're about to add vectors)
         if self.index is None:
-            self._load_or_create_index()
+            self._load_or_create_index(rebuild_if_needed=False)
 
         # Add embeddings to index
         metadata_list = [
@@ -315,8 +315,13 @@ class Collection:
 
         logger.info(f"Updated and saved index with {len(embeddings)} new vectors")
 
-    def _load_or_create_index(self) -> None:
-        """Load existing index or create a new one."""
+    def _load_or_create_index(self, rebuild_if_needed: bool = True) -> None:
+        """Load existing index or create a new one. If embeddings exist but index doesn't, rebuild index.
+
+        Args:
+            rebuild_if_needed: Whether to rebuild index from embeddings if index is empty but embeddings exist.
+                              Set to False when creating a new index that will be populated immediately.
+        """
         index_path = self.indexes_dir / self.name
 
         dimension = self.config["embeddings"]["dimension"]
@@ -338,6 +343,10 @@ class Collection:
                 dimension=dimension, similarity_metric=similarity_metric, normalized=normalized
             )
             logger.info("Created new brute-force index")
+
+            # Check if embeddings exist and rebuild index if needed
+            if rebuild_if_needed:
+                self._rebuild_index_if_needed()
 
         elif self.algorithm == "hnsw":
             # Try to load existing index
@@ -364,8 +373,62 @@ class Collection:
             )
             logger.info("Created new HNSW index")
 
+            # Check if embeddings exist and rebuild index if needed
+            if rebuild_if_needed:
+                self._rebuild_index_if_needed()
+
         else:
             raise ValueError(f"Unknown algorithm: {self.algorithm}")
+
+    def _rebuild_index_if_needed(self) -> None:
+        """Rebuild index from embeddings if embeddings exist but index is empty."""
+        # Check if we have an empty index but embeddings exist
+        if len(self.index) == 0 and embeddings_exist(self.name, self.embeddings_dir):
+            logger.info(f"Found embeddings but empty index for '{self.name}', rebuilding index...")
+
+            try:
+                # Load embeddings
+                emb_data = load_embeddings(self.name, self.embeddings_dir)
+                embeddings = emb_data["embeddings"]
+                chunk_ids = emb_data["chunk_ids"]
+
+                logger.info(f"Loaded {len(embeddings)} embeddings, rebuilding index...")
+
+                # Load all chunks to get metadata
+                all_chunks = []
+                doc_ids = get_all_chunked_documents(self.chunks_dir)
+                for doc_id in doc_ids:
+                    try:
+                        chunk_data = load_chunks(doc_id, self.chunks_dir)
+                        all_chunks.extend(chunk_data["chunks"])
+                    except Exception as e:
+                        logger.warning(f"Could not load chunks for {doc_id}: {e}")
+
+                # Create chunk_id to chunk mapping
+                chunk_map = {chunk["chunk_id"]: chunk for chunk in all_chunks}
+
+                # Build metadata list in same order as embeddings
+                chunks_for_index = []
+                embeddings_for_index = []
+                for i, chunk_id in enumerate(chunk_ids):
+                    if chunk_id in chunk_map:
+                        chunks_for_index.append(chunk_map[chunk_id])
+                        embeddings_for_index.append(embeddings[i])
+                    else:
+                        logger.warning(f"Chunk {chunk_id} not found in loaded chunks")
+
+                if chunks_for_index:
+                    # Update the index
+                    embeddings_array = np.array(embeddings_for_index)
+                    self._update_index(embeddings_array, chunks_for_index)
+                    logger.info(f"Successfully rebuilt index with {len(chunks_for_index)} vectors")
+                else:
+                    logger.warning("No chunks found to rebuild index")
+
+            except Exception as e:
+                logger.error(f"Failed to rebuild index: {e}")
+                import traceback
+                traceback.print_exc()
 
     def search(
         self,
