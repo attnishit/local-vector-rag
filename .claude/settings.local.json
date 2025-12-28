@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(source venv/bin/activate)",
+      "Bash(python main.py:*)",
+      "Bash(python:*)",
+      "Bash(pytest:*)",
+      "Bash(pip install:*)",
+      "Bash(python3:*)",
+      "Bash(find:*)",
+      "Bash(for file in /Users/nishit/Desktop/rag/main.py /Users/nishit/Desktop/rag/src/__init__.py /Users/nishit/Desktop/rag/src/config.py /Users/nishit/Desktop/rag/src/embeddings/__init__.py /Users/nishit/Desktop/rag/src/embeddings/model.py /Users/nishit/Desktop/rag/src/embeddings/pipeline.py /Users/nishit/Desktop/rag/src/ingestion/__init__.py /Users/nishit/Desktop/rag/src/ingestion/chunker.py /Users/nishit/Desktop/rag/src/ingestion/loader.py /Users/nishit/Desktop/rag/src/logger.py /Users/nishit/Desktop/rag/src/query/__init__.py /Users/nishit/Desktop/rag/src/query/pipeline.py /Users/nishit/Desktop/rag/src/vectorstore/__init__.py /Users/nishit/Desktop/rag/src/vectorstore/brute_force.py /Users/nishit/Desktop/rag/src/vectorstore/hnsw.py /Users/nishit/Desktop/rag/src/vectorstore/persistence.py /Users/nishit/Desktop/rag/src/vectorstore/similarity.py)",
+      "Bash(do)",
+      "Bash(if ! grep -q \"Author: Nishit Attrey\" \"$file\")",
+      "Bash(then)",
+      "Bash(echo:*)",
+      "Bash(fi)",
+      "Bash(done)",
+      "Bash(wait)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

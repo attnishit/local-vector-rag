@@ -1,0 +1,725 @@
+# RAG System Production Readiness Plan
+
+**Created**: 2025-12-27
+**Status**: Ready for Implementation
+**Goal**: Transform the RAG system from in-memory demo to production-ready application
+
+---
+
+## Overview
+
+This plan addresses 5 core problems to make the Local Vector RAG Database production-ready:
+
+0. **Multi-Format Document Support**: Extend beyond .txt to PDF, DOCX, and Markdown
+1. **Disk-based Persistence**: Convert from in-memory to permanent storage
+2. **Clean Architecture**: Remove hardcoded data from main.py
+3. **Global CLI Command**: Create proper `rag` command that works anywhere
+4. **GUI Interface**: Build user-friendly interface for all functionality
+
+---
+
+## Problem 0: Multi-Format Document Support
+
+### Current State
+- Only `.txt` files supported (hardcoded in `config.yaml`)
+- `src/ingestion/loader.py` only handles plain text files
+- Real-world documents come in many formats: PDF, Word, Markdown, etc.
+- Users must manually convert documents to .txt before using the system
+- Missing a huge opportunity for practical use cases
+
+### Goal
+Enable the RAG system to ingest documents in multiple common formats:
+- **PDF** (.pdf): Research papers, books, reports, scanned documents
+- **Word Documents** (.docx, .doc): Business documents, articles, drafts
+- **Markdown** (.md): Documentation, README files, technical writing
+- **Plain Text** (.txt): Already supported, keep as baseline
+
+### Implementation Steps
+
+#### Step 0.1: Add Document Format Detection
+**File**: `src/ingestion/loader.py`
+- Add function `detect_format(filepath: Path) -> str` using file extension
+- Support: .txt, .pdf, .docx, .doc, .md
+- Raise clear error for unsupported formats
+- Return normalized format identifier (e.g., "pdf", "docx", "markdown")
+
+**Expected Result**: System can identify document type from extension
+
+#### Step 0.2: Implement PDF Text Extraction
+**New file**: `src/ingestion/extractors/pdf.py`
+- Install dependency: `pypdf` or `PyMuPDF` (fitz)
+- Implement `extract_text_from_pdf(filepath: Path) -> str`
+- Handle:
+  - Multi-page documents (concatenate with page markers)
+  - Scanned PDFs with OCR (optional: use `pytesseract` if available)
+  - Metadata extraction (title, author) for better chunking context
+  - Tables and formatting (preserve structure where possible)
+- Return normalized plain text
+
+**Dependencies to add**:
+```txt
+PyMuPDF>=1.23.0  # or pypdf>=3.0.0
+pytesseract>=0.3.10  # optional, for OCR
+```
+
+**Expected Result**: Can extract text from PDF files accurately
+
+#### Step 0.3: Implement DOCX/DOC Text Extraction
+**New file**: `src/ingestion/extractors/docx.py`
+- Install dependency: `python-docx` for .docx
+- Install dependency: `textract` or `pywin32` for legacy .doc (optional)
+- Implement `extract_text_from_docx(filepath: Path) -> str`
+- Handle:
+  - Paragraphs and headings (preserve hierarchy markers)
+  - Tables (extract as formatted text)
+  - Headers/footers (include or skip based on config)
+  - Embedded images (skip text extraction, log presence)
+- Return normalized plain text
+
+**Dependencies to add**:
+```txt
+python-docx>=1.0.0
+textract>=1.6.5  # optional, for .doc support
+```
+
+**Expected Result**: Can extract text from Word documents
+
+#### Step 0.4: Implement Markdown Text Extraction
+**New file**: `src/ingestion/extractors/markdown.py`
+- Install dependency: `markdown` or use simple parser
+- Implement `extract_text_from_markdown(filepath: Path) -> str`
+- Options:
+  - **Option A**: Strip markdown syntax entirely (clean text only)
+  - **Option B**: Preserve some structure (keep headers for context)
+  - **Recommended**: Option B - keep headers, remove links/formatting
+- Handle:
+  - Code blocks (include or skip based on config)
+  - Links (extract URL in footnote or remove)
+  - Images (skip, just keep alt text)
+  - Tables (convert to plain text representation)
+- Return normalized plain text
+
+**Dependencies to add**:
+```txt
+markdown>=3.5.0  # optional, or use regex-based parser
+```
+
+**Expected Result**: Can extract clean text from Markdown files
+
+#### Step 0.5: Update Document Loader
+**File**: `src/ingestion/loader.py`
+- Refactor `load_document()` to route by format:
+  ```python
+  def load_document(filepath: Path, encoding: str = "utf-8") -> Dict:
+      format = detect_format(filepath)
+
+      if format == "txt":
+          text = _load_text_file(filepath, encoding)
+      elif format == "pdf":
+          text = extract_text_from_pdf(filepath)
+      elif format == "docx":
+          text = extract_text_from_docx(filepath)
+      elif format == "markdown":
+          text = extract_text_from_markdown(filepath)
+      else:
+          raise ValueError(f"Unsupported format: {format}")
+
+      return {
+          "doc_id": filepath.stem,
+          "text": text,
+          "format": format,
+          "source": str(filepath),
+          "size": len(text)
+      }
+  ```
+- Add error handling for extraction failures
+- Log warnings for documents that fail to extract
+
+**Expected Result**: Universal document loader that handles all formats
+
+#### Step 0.6: Update Configuration
+**File**: `config.yaml`
+- Update `ingestion.supported_formats`:
+  ```yaml
+  ingestion:
+    supported_formats: ["txt", "pdf", "docx", "doc", "md"]
+  ```
+- Add format-specific options (optional):
+  ```yaml
+  ingestion:
+    pdf:
+      ocr_enabled: false  # Use OCR for scanned PDFs
+      extract_images: false
+    docx:
+      include_headers: true
+      include_footers: false
+    markdown:
+      preserve_code_blocks: true
+      preserve_headers: true
+  ```
+
+**Expected Result**: Configurable format support
+
+#### Step 0.7: Update CLI Commands
+**File**: `main.py` (or `src/cli/commands.py`)
+- Update `cmd_preview()` to accept any supported format
+- Update help text to mention supported formats
+- Add format auto-detection in collection creation
+- Example usage:
+  ```bash
+  python main.py preview data/raw/paper.pdf
+  python main.py preview data/raw/report.docx
+  python main.py preview data/raw/README.md
+  ```
+
+**Expected Result**: All demo commands work with new formats
+
+#### Step 0.8: Add Format-Specific Tests
+**New file**: `tests/test_extractors.py` (if tests exist)
+- Test PDF extraction with sample PDF
+- Test DOCX extraction with sample document
+- Test Markdown extraction with sample .md file
+- Test format detection
+- Test error handling for corrupted files
+
+**Expected Result**: Robust format support with test coverage
+
+#### Step 0.9: Create Sample Documents
+**New files**: `data/raw/samples/`
+- Create `sample_document.pdf`: Multi-page PDF with tables
+- Create `sample_document.docx`: Word doc with formatting
+- Create `sample_document.md`: Markdown with code blocks
+- Update README with examples using these files
+
+**Expected Result**: Users can test all formats immediately
+
+#### Step 0.10: Update Documentation
+**Files**: `README.md`, `CLAUDE.md`
+- Add "Supported Formats" section to README
+- Document format-specific behavior and limitations
+- Add troubleshooting for common format issues:
+  - Scanned PDFs may need OCR
+  - Legacy .doc files require additional dependencies
+  - Password-protected PDFs not supported
+- Update CLAUDE.md with extractor architecture
+
+**Expected Result**: Clear documentation of multi-format capabilities
+
+---
+
+## Problem 1: Disk-Based Persistence
+
+### Current State
+- Embeddings created in memory and discarded after each run
+- Chunks exist only during execution
+- Vector stores (brute-force and HNSW) rebuilt every time
+- `persistence.py` exists but is unused in workflows
+- Directories exist but empty: `data/processed/`, `data/embeddings/`, `data/indexes/`
+
+### Goal
+Make the system work like a real database with permanent storage:
+- Save embeddings once, reuse them
+- Store chunks on disk
+- Persist HNSW indexes
+- Support incremental updates (add new documents without rebuilding everything)
+
+### Implementation Steps
+
+#### Step 1.1: Integrate Existing Persistence for Brute-Force
+**File**: `src/vectorstore/brute_force.py`
+- Add `save()` method that calls `persistence.save_index()`
+- Add `load()` class method to restore from disk
+- Store: vectors.npy, metadata (chunk_ids, texts), config
+- Location: `data/indexes/brute_force/`
+
+**Expected Result**: Brute-force index can be saved and loaded
+
+#### Step 1.2: Implement HNSW Persistence
+**File**: `src/vectorstore/hnsw.py`
+- Design serialization format for graph structure (nodes, layers, neighbors)
+- Add `save()` method to persist:
+  - Graph adjacency lists (hierarchical structure)
+  - Entry point node
+  - All vectors and metadata
+  - Configuration (M, ef_construction, etc.)
+- Add `load()` class method to reconstruct graph
+- Location: `data/indexes/hnsw/`
+
+**Expected Result**: HNSW index preserves all graph connections across restarts
+
+#### Step 1.3: Create Chunks Persistence Layer
+**File**: `src/ingestion/chunker.py` or new `src/ingestion/persistence.py`
+- Save chunked documents to `data/processed/<doc_id>_chunks.json`
+- Include: chunk_id, text, metadata, source document
+- Add deduplication: skip re-chunking if file unchanged (hash-based)
+- Function: `save_chunks()`, `load_chunks()`, `get_existing_chunks()`
+
+**Expected Result**: Chunks persist on disk, can be loaded without re-processing
+
+#### Step 1.4: Create Embeddings Persistence Layer
+**File**: `src/embeddings/pipeline.py` or new `src/embeddings/persistence.py`
+- Save embeddings to `data/embeddings/<collection_name>.npz`
+- Store: embedding vectors, chunk_ids mapping, model metadata
+- Add function to check if embeddings exist for given chunks
+- Incremental embedding: only embed new/changed chunks
+
+**Expected Result**: Embeddings saved once, reused across sessions
+
+#### Step 1.5: Implement Incremental Update Support
+**Files**: All persistence modules
+- Design strategy for adding new documents without full rebuild
+- For brute-force: append new vectors to existing index
+- For HNSW: insert new vectors into existing graph
+- Track document versions/hashes to detect changes
+- Function: `add_documents()` that only processes new content
+
+**Expected Result**: Can add documents without rebuilding entire index
+
+#### Step 1.6: Create Collection Management System
+**New file**: `src/collection.py`
+- Implement "collection" concept (like a database table)
+- Each collection has: name, chunks, embeddings, index
+- Functions:
+  - `create_collection(name)`: Initialize new collection
+  - `list_collections()`: Show all collections
+  - `delete_collection(name)`: Remove collection and all data
+  - `get_collection(name)`: Load existing collection
+- Store collection metadata in `data/collections.json`
+
+**Expected Result**: Can manage multiple independent document collections
+
+---
+
+## Problem 2: Remove Hardcoded Data from main.py
+
+### Current State
+- `main.py` is 1045 lines with hardcoded sample chunks
+- Line 359-390: `cmd_search_demo()` has 6 hardcoded chunks
+- Line 537-578: `cmd_query_demo()` has 8 hardcoded chunks
+- Demo commands need this data to work
+- File is difficult to maintain and understand
+
+### Goal
+Clean, concise main.py that relies on documentation and real data files
+
+### Implementation Steps
+
+#### Step 2.1: Create Sample Data Files
+**New files**: `data/raw/samples/`
+- Create `sample_vector_search.txt`: Content from search-demo chunks
+- Create `sample_rag_concepts.txt`: Content from query-demo chunks
+- Create `sample_ml_basics.txt`: General ML content
+- Update README with these sample files for demos
+
+**Expected Result**: Sample data externalized, can be version controlled
+
+#### Step 2.2: Refactor search-demo Command
+**File**: `main.py` line 359-390
+- Remove hardcoded chunks
+- Load from `data/raw/samples/sample_vector_search.txt`
+- Use normal ingestion pipeline (chunk → embed → search)
+- Keep demo lightweight: auto-create collection if missing
+
+**Expected Result**: `rag search-demo "query"` works without hardcoded data
+
+#### Step 2.3: Refactor query-demo Command
+**File**: `main.py` line 537-578
+- Remove hardcoded chunks
+- Load from `data/raw/samples/sample_rag_concepts.txt`
+- Use collection system to persist demo data
+- Show how to use persistence features
+
+**Expected Result**: `rag query-demo "query"` loads from disk
+
+#### Step 2.4: Simplify main.py Structure
+**File**: `main.py`
+- Split into modules:
+  - `src/cli/commands.py`: Command implementations
+  - `src/cli/parser.py`: Argument parsing
+  - `src/cli/main.py`: Entry point
+- Keep main.py as thin wrapper (<100 lines)
+- Move command logic to dedicated files
+
+**Expected Result**: Clean separation of concerns, easier to maintain
+
+#### Step 2.5: Update Documentation
+**Files**: `README.md`, `CLAUDE.md`
+- Update README examples to reference sample files
+- Add section explaining demo commands
+- Document how to create custom collections
+- Add troubleshooting section
+
+**Expected Result**: Users can understand system without reading code
+
+---
+
+## Problem 3: Global CLI Command
+
+### Current State
+- Must run as `python main.py <command>`
+- Only works from project directory
+- Not discoverable via shell PATH
+- pyproject.toml exists but lacks console_scripts entry
+
+### Goal
+Create `rag` command that works globally like `ls`, `git`, `docker`
+
+### Implementation Steps
+
+#### Step 3.1: Create CLI Entry Point
+**New file**: `src/cli/__init__.py`
+- Create `main()` function as entry point
+- Import and setup argument parser
+- Delegate to command functions
+- Handle exceptions gracefully
+
+**Expected Result**: Single entry point for all CLI operations
+
+#### Step 3.2: Configure Console Script
+**File**: `pyproject.toml`
+- Add `[project.scripts]` section:
+  ```toml
+  [project.scripts]
+  rag = "src.cli:main"
+  ```
+- Ensure all dependencies are listed in `[project.dependencies]`
+- Test with `pip install -e .` (editable mode)
+
+**Expected Result**: `rag` command available after installation
+
+#### Step 3.3: Design CLI Command Structure
+**Commands to implement**:
+```bash
+# Collection management
+rag create <collection> --source <directory>
+rag list
+rag delete <collection>
+
+# Search operations
+rag search <collection> "query" --top-k 5
+rag query "query" --collection <name>
+
+# Data operations
+rag add <collection> <file_or_directory>
+rag rebuild <collection>  # Rebuild index
+
+# Utilities
+rag info <collection>  # Show stats
+rag benchmark [options]
+rag version
+```
+
+**Expected Result**: Comprehensive CLI with intuitive commands
+
+#### Step 3.4: Implement Collection Commands
+**File**: `src/cli/commands.py`
+- `cmd_create()`: Create new collection from documents
+- `cmd_list()`: Show all collections with stats
+- `cmd_delete()`: Remove collection
+- `cmd_info()`: Display collection metadata
+
+**Expected Result**: Full collection lifecycle management
+
+#### Step 3.5: Implement Search Commands
+**File**: `src/cli/commands.py`
+- `cmd_search()`: Search in specific collection
+- `cmd_query()`: Search with auto-collection selection
+- Support options: --top-k, --algorithm (brute/hnsw), --ef-search
+- Format output clearly (rank, score, text preview)
+
+**Expected Result**: Fast, usable search from command line
+
+#### Step 3.6: Add Installation Documentation
+**File**: `README.md`
+- Add "Installation" section:
+  ```bash
+  pip install -e .  # Development
+  # or
+  pip install git+<repo-url>  # From GitHub
+  ```
+- Document all CLI commands with examples
+- Add shell completion section (future enhancement)
+
+**Expected Result**: Users can install and use globally
+
+---
+
+## Problem 4: Build GUI Interface
+
+### Current State
+- Command-line only
+- No visual interface
+- Hard for non-technical users
+- Can't visualize embeddings or results
+
+### Goal
+User-friendly GUI that exposes all functionality:
+- Search and query
+- Create/manage collections
+- View embeddings (2D projection)
+- Run benchmarks
+- Monitor system stats
+
+### Implementation Steps
+
+#### Step 4.1: Choose GUI Framework
+**Options to evaluate**:
+
+**Option A: Web Interface (Recommended)**
+- Framework: Gradio or Streamlit
+- Pros: Easy to build, works anywhere, shareable
+- Cons: Requires running server
+- Best for: Quick prototyping, sharing demos
+
+**Option B: Desktop Application**
+- Framework: PyQt6 or tkinter
+- Pros: Native feel, no server needed
+- Cons: More complex, platform-specific issues
+- Best for: Professional standalone app
+
+**Option C: Terminal UI**
+- Framework: Rich or Textual
+- Pros: Works in terminal, lightweight
+- Cons: Limited interactivity
+- Best for: Server environments, SSH access
+
+**Decision**: Start with Gradio (fastest to implement)
+
+#### Step 4.2: Create Basic Web Interface (Gradio)
+**New file**: `src/gui/app.py`
+- Setup Gradio interface
+- Create tabs:
+  - "Search": Query interface
+  - "Collections": Management
+  - "Benchmark": Performance testing
+- Basic layout with input/output components
+
+**Expected Result**: `rag gui` launches web interface
+
+#### Step 4.3: Implement Search Tab
+**File**: `src/gui/app.py` - Search tab
+- Dropdown: Select collection
+- Textbox: Enter query
+- Slider: Top-k results (1-20)
+- Radio: Algorithm (brute-force vs HNSW)
+- Button: Search
+- Output: Formatted results with scores
+
+**Expected Result**: Visual search interface that calls query pipeline
+
+#### Step 4.4: Implement Collections Tab
+**File**: `src/gui/app.py` - Collections tab
+- Display: List of collections (name, size, vectors)
+- Button: Create new collection
+  - File upload for documents
+  - Text input for collection name
+- Button: Delete collection
+- Button: Rebuild index
+- Status messages for operations
+
+**Expected Result**: Full collection management via UI
+
+#### Step 4.5: Implement Benchmark Tab
+**File**: `src/gui/app.py` - Benchmark tab
+- Configuration:
+  - Dataset size slider
+  - Number of queries slider
+  - Algorithm checkboxes (which to test)
+- Button: Run benchmark
+- Output: Results table + charts
+- Chart: Latency comparison
+- Chart: Recall@k visualization
+
+**Expected Result**: Interactive benchmarking with visual results
+
+#### Step 4.6: Add Advanced Features
+**File**: `src/gui/app.py`
+- **Embedding Visualization**:
+  - Use UMAP/t-SNE to project embeddings to 2D
+  - Plot documents as points
+  - Highlight query and results
+  - Interactive: click point to see text
+
+- **Stats Dashboard**:
+  - Total collections
+  - Total vectors indexed
+  - Disk usage
+  - Recent searches
+
+- **Settings Panel**:
+  - Configure chunk size/overlap
+  - Choose embedding model
+  - HNSW parameters
+
+**Expected Result**: Professional, feature-rich interface
+
+#### Step 4.7: Add GUI to CLI
+**File**: `src/cli/commands.py`
+- Add `cmd_gui()` function:
+  - Launch Gradio app
+  - Auto-open browser
+  - Show URL for access
+- Update pyproject.toml if needed
+- Command: `rag gui [--port 7860] [--share]`
+
+**Expected Result**: `rag gui` launches web interface
+
+---
+
+## Implementation Order (Priority)
+
+### Phase 0: Multi-Format Support (Week 1)
+1. [ ] Problem 0, Steps 0.1-0.5: Core format extractors (PDF, DOCX, MD)
+2. [ ] Problem 0, Steps 0.6-0.7: Configuration and CLI updates
+3. [ ] Problem 0, Steps 0.8-0.10: Testing and documentation
+
+**Milestone**: Can ingest PDF, DOCX, and Markdown documents
+
+### Phase 1: Foundation (Week 2)
+4. ✅ Problem 1, Steps 1.1-1.4: Persistence layer
+5. ✅ Problem 2, Steps 2.1-2.3: Remove hardcoded data
+6. ✅ Problem 1, Step 1.6: Collection system
+
+**Milestone**: Can save/load collections from disk
+
+### Phase 2: CLI (Week 3)
+7. ✅ Problem 3, Steps 3.1-3.5: Global CLI command
+8. ✅ Problem 2, Step 2.4: Refactor main.py structure
+9. ✅ Problem 1, Step 1.5: Incremental updates
+
+**Milestone**: `rag` command works globally with collections
+
+### Phase 3: Advanced Features (Week 4)
+10. ✅ Problem 1, Step 1.2: HNSW persistence
+11. ✅ Problem 2, Step 2.5: Documentation updates
+12. ✅ Problem 3, Step 3.6: Installation docs
+
+**Milestone**: Production-ready CLI tool
+
+### Phase 4: GUI (Week 5)
+13. ✅ Problem 4, Steps 4.1-4.7: Complete GUI implementation
+
+**Milestone**: Full-featured application with UI
+
+---
+
+## Success Criteria
+
+### Multi-Format Support
+- [ ] Can extract text from PDF files accurately
+- [ ] Can extract text from DOCX files (and optionally .doc)
+- [ ] Can parse Markdown files while preserving structure
+- [ ] All demo commands work with PDF, DOCX, and MD files
+- [ ] Format detection works automatically based on file extension
+- [ ] Clear error messages for unsupported or corrupted files
+
+### Persistence
+- [ ] Can create collection once, query it repeatedly
+- [ ] Adding documents doesn't require full rebuild
+- [ ] System survives restart without data loss
+- [ ] Multiple collections can coexist
+
+### CLI
+- [ ] `rag` command works from any directory
+- [ ] Installation via `pip install -e .`
+- [ ] All 262 tests still passing
+- [ ] Clear error messages for invalid operations
+
+### Code Quality
+- [ ] main.py < 100 lines
+- [ ] No hardcoded data in source code
+- [ ] All sample data in data/raw/samples/
+- [ ] README provides complete usage guide
+
+### GUI
+- [ ] Can search collections visually
+- [ ] Can create/manage collections
+- [ ] Benchmarks display charts
+- [ ] Works on localhost, shareable if needed
+
+---
+
+## Testing Strategy
+
+### Unit Tests
+- Test persistence save/load for each component
+- Test incremental updates
+- Test collection management functions
+- Maintain 262+ passing tests
+
+### Integration Tests
+- Test end-to-end: document → chunks → embeddings → index → query
+- Test collection creation with real documents
+- Test incremental addition of documents
+- Test persistence across restarts
+
+### Manual Testing
+- Install `rag` command globally
+- Create collection from real documents
+- Restart terminal, query again (verify persistence)
+- Test GUI on different browsers
+- Test error cases (missing files, invalid collections)
+
+---
+
+## Dependencies to Add
+
+```toml
+# Problem 0: Multi-format support
+PyMuPDF = "^1.23.0"  # PDF extraction (or pypdf>=3.0.0)
+python-docx = "^1.0.0"  # DOCX extraction
+markdown = "^3.5.0"  # Markdown parsing (optional)
+pytesseract = "^0.3.10"  # Optional: OCR for scanned PDFs
+textract = "^1.6.5"  # Optional: Legacy .doc support
+
+# Problem 4: GUI (optional)
+gradio = "^4.0.0"  # or streamlit
+plotly = "^5.18.0"  # For charts
+umap-learn = "^0.5.5"  # For embedding visualization (optional)
+
+# Already have
+sentence-transformers
+numpy
+pyyaml
+```
+
+---
+
+## Risks and Mitigations
+
+### Risk 0: PDF Extraction Quality
+**Mitigation**: Use PyMuPDF (robust), test with various PDF types, add OCR for scanned documents
+
+### Risk 1: Breaking Existing Tests
+**Mitigation**: Run tests after each step, fix immediately
+
+### Risk 2: HNSW Serialization Complexity
+**Mitigation**: Start with simple format, optimize later
+
+### Risk 3: Large Index Files
+**Mitigation**: Add compression option, document disk requirements
+
+### Risk 4: GUI Performance with Large Collections
+**Mitigation**: Paginate results, add loading indicators
+
+### Risk 5: Format-Specific Extraction Failures
+**Mitigation**: Graceful degradation, log warnings, provide fallback options
+
+---
+
+## Next Steps
+
+1. **Review this plan** with user for approval
+2. **Start with Problem 0, Step 0.1**: Add format detection to loader
+3. **Continue with Problem 0, Steps 0.2-0.4**: Implement extractors for PDF, DOCX, MD
+4. **Work incrementally**: One step at a time, test thoroughly
+5. **Update this plan**: Mark steps complete as we go
+
+---
+
+**Questions for User** (if any):
+- Preferred PDF library: PyMuPDF (faster, more features) or pypdf (simpler, pure Python)?
+- Should we support OCR for scanned PDFs in Phase 0, or defer to later?
+- Preferred CLI command name: `rag`, `search`, `vectordb`, or other?
+- GUI priority: High (do in Phase 2) or Low (do last)?
+- Target deployment: Local only or need server deployment?

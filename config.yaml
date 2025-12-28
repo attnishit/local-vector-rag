@@ -1,0 +1,136 @@
+# Local Vector RAG Database - Configuration File
+# This file contains all configurable parameters for the system.
+# Modify values as needed for your environment and use case.
+
+project:
+  name: "Local Vector RAG"
+  version: "0.1.0-stage11"
+
+logging:
+  # Log level: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+
+  # Log message format (Python logging format string)
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+  # Enable/disable console output
+  console_output: true
+
+  # Enable/disable file output
+  file_output: true
+
+  # Log file location (relative to project root)
+  log_file: "logs/rag.log"
+
+  # Maximum log file size in bytes (10MB default)
+  max_bytes: 10485760
+
+  # Number of backup log files to keep
+  backup_count: 5
+
+paths:
+  # Base data directory
+  data_dir: "data"
+
+  # Raw documents directory
+  raw_dir: "data/raw"
+
+  # Processed chunks directory
+  processed_dir: "data/processed"
+
+  # Embeddings storage directory
+  embeddings_dir: "data/embeddings"
+
+  # Persisted indexes directory (Stage 5)
+  indexes_dir: "data/indexes"
+
+  # Logs directory
+  logs_dir: "logs"
+
+# Stage 2: Document Ingestion & Chunking
+ingestion:
+  # Size of each text chunk in characters
+  chunk_size: 512
+
+  # Number of characters to overlap between chunks
+  chunk_overlap: 50
+
+  # Supported file formats (Stage 2: txt only)
+  supported_formats: ["txt"]
+
+  # Text encoding for file reading
+  encoding: "utf-8"
+
+# Stage 3: Local Embedding Pipeline
+embeddings:
+  # Sentence transformers model name
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+
+  # Device to use: "cpu" or "cuda" (if GPU available)
+  device: "cpu"
+
+  # Batch size for embedding generation
+  batch_size: 32
+
+  # Expected embedding dimension (for validation)
+  dimension: 384
+
+  # Apply L2 normalization to embeddings
+  normalize: true
+
+# Stage 4: Brute-Force Vector Store
+vectorstore:
+  # Vector search algorithm: "brute_force" (exact) or "hnsw" (approximate, Stages 6-8)
+  algorithm: "brute_force"
+
+  # Similarity metric for distance calculation
+  similarity_metric: "cosine"
+
+  # Default number of results to return (top-k)
+  default_top_k: 5
+
+  # HNSW parameters (for future stages 6-8)
+  hnsw:
+    # Number of bidirectional links per node (higher = more accurate but slower)
+    m: 16
+
+    # Size of dynamic candidate list during construction
+    ef_construction: 200
+
+    # Size of dynamic candidate list during search
+    ef_search: 50
+
+# Stage 9: Query Pipeline
+query:
+  # Number of results to return by default
+  top_k: 5
+
+  # Minimum similarity score threshold (0.0 = no filtering)
+  # Typical values: 0.3-0.5 for cosine similarity
+  min_score: 0.0
+
+  # Normalize query embeddings (should match document normalization)
+  normalize: true
+
+  # HNSW search parameter (null = use index default)
+  ef_search: null
+
+# Stage 11: Evaluation & Benchmarking
+benchmarks:
+  # Default dataset size for benchmarks
+  dataset_size: 1000
+
+  # Number of queries to run per benchmark
+  n_queries: 100
+
+  # k values to test for recall@k evaluation
+  k_values: [1, 5, 10]
+
+  # HNSW ef_search values to test
+  ef_search_values: [10, 50, 100]
+
+  # Random seed for reproducible benchmarks
+  seed: 42
+
+  # Dataset sizes for scalability comparison
+  scalability_sizes: [100, 1000, 5000, 10000]

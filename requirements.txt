@@ -1,0 +1,11 @@
+# Core dependencies for Stages 1-2
+PyYAML>=6.0.1
+
+# Stage 3: Embeddings
+numpy>=1.24.0
+sentence-transformers>=2.2.0
+torch>=2.0.0
+
+# Development dependencies
+black>=23.0.0
+ruff>=0.1.0
