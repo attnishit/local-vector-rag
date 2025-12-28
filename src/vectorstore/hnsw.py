@@ -29,8 +29,12 @@ Version: 0.1.0-stage8
 import numpy as np
 import math
 import heapq
+import json
+import hashlib
+from pathlib import Path
 from typing import Dict, List, Set, Any, Optional, Tuple
 from dataclasses import dataclass, field
+from datetime import datetime
 import logging
 
 # Import similarity functions
@@ -963,6 +967,239 @@ class HNSWIndex:
             f"m={self.m}, ef_construction={self.ef_construction}, "
             f"metric={self.similarity_metric})"
         )
+
+    def save(self, index_dir: Path, index_name: str = "default") -> None:
+        """
+        Save this HNSW index to disk.
+
+        Creates a directory with:
+            - vectors.npy: Binary vector data (matrix storage)
+            - graph.json: Graph structure (nodes, neighbors, layers)
+            - metadata.json: Metadata for each node
+            - index_info.json: Index configuration and checksum
+
+        Args:
+            index_dir: Directory to save index in
+            index_name: Name for this index (for logging)
+
+        Raises:
+            ValueError: If index is empty
+            IOError: If unable to write files
+
+        Example:
+            >>> index.save(Path("data/indexes/hnsw/my_index"))
+            >>> # Later...
+            >>> loaded_index = HNSWIndex.load(Path("data/indexes/hnsw/my_index"))
+        """
+        if len(self) == 0:
+            raise ValueError("Cannot save empty HNSW index")
+
+        index_dir = Path(index_dir)
+        index_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Saving HNSW index '{index_name}' to {index_dir}")
+
+        # 1. Save vectors (only the used portion)
+        vectors_to_save = self._vector_matrix[:self._num_vectors]
+        vectors_path = index_dir / "vectors.npy"
+        vectors_temp = index_dir / "vectors_tmp"
+        np.save(vectors_temp, vectors_to_save)
+        (index_dir / "vectors_tmp.npy").replace(vectors_path)
+        logger.debug(f"Saved vectors: {vectors_to_save.shape}")
+
+        # 2. Save graph structure
+        graph_data = {
+            "nodes": [],
+            "entry_point": self.entry_point,
+            "level_count": self.level_count,
+            "next_node_id": self.next_node_id,
+        }
+
+        # Serialize each node's graph structure (node_id, level, neighbors)
+        for node_id in sorted(self.nodes.keys()):
+            node = self.nodes[node_id]
+            # Convert neighbor sets to lists for JSON serialization
+            neighbors_dict = {
+                str(layer): list(neighbor_set)
+                for layer, neighbor_set in node.neighbors.items()
+            }
+            graph_data["nodes"].append({
+                "node_id": node_id,
+                "level": node.level,
+                "neighbors": neighbors_dict,
+            })
+
+        graph_path = index_dir / "graph.json"
+        graph_temp = index_dir / "graph.json.tmp"
+        with open(graph_temp, "w") as f:
+            json.dump(graph_data, f, indent=2)
+        graph_temp.replace(graph_path)
+        logger.debug(f"Saved graph: {len(graph_data['nodes'])} nodes")
+
+        # 3. Save metadata for each node
+        metadata_list = [self.nodes[i].metadata for i in range(len(self))]
+        metadata_path = index_dir / "metadata.json"
+        metadata_temp = index_dir / "metadata.json.tmp"
+        with open(metadata_temp, "w") as f:
+            json.dump(metadata_list, f, indent=2)
+        metadata_temp.replace(metadata_path)
+        logger.debug(f"Saved metadata: {len(metadata_list)} entries")
+
+        # 4. Save index info (configuration + integrity check)
+        checksum = hashlib.sha256(vectors_to_save.tobytes()).hexdigest()
+
+        index_info = {
+            "version": "0.1.0-hnsw",
+            "algorithm": "hnsw",
+            "created_at": datetime.now().isoformat(),
+            "index_name": index_name,
+            "dimension": self.dimension,
+            "num_vectors": len(self),
+            "similarity_metric": self.similarity_metric,
+            "normalized": self.normalized,
+            "checksum": checksum,
+            # HNSW-specific parameters
+            "m": self.m,
+            "m0": self.m0,
+            "ef_construction": self.ef_construction,
+            "ml": self.ml,
+            "level_count": self.level_count,
+            "entry_point": self.entry_point,
+            "use_heuristic": self.use_heuristic,
+        }
+
+        info_path = index_dir / "index_info.json"
+        info_temp = index_dir / "index_info.json.tmp"
+        with open(info_temp, "w") as f:
+            json.dump(index_info, f, indent=2)
+        info_temp.replace(info_path)
+
+        logger.info(
+            f"HNSW index saved successfully: {len(self)} vectors, "
+            f"{self.level_count} levels, checksum={checksum[:16]}..."
+        )
+
+    @classmethod
+    def load(cls, index_dir: Path, verify_checksum: bool = True) -> "HNSWIndex":
+        """
+        Load an HNSW index from disk.
+
+        Args:
+            index_dir: Directory containing saved index
+            verify_checksum: If True, verify data integrity
+
+        Returns:
+            Loaded HNSWIndex instance
+
+        Raises:
+            FileNotFoundError: If index doesn't exist
+            ValueError: If index is corrupted or incompatible
+
+        Example:
+            >>> index = HNSWIndex.load(Path("data/indexes/hnsw/my_index"))
+            >>> print(f"Loaded {len(index)} vectors with {index.level_count} levels")
+        """
+        index_dir = Path(index_dir)
+
+        if not index_dir.exists():
+            raise FileNotFoundError(f"Index directory not found: {index_dir}")
+
+        logger.info(f"Loading HNSW index from {index_dir}")
+
+        # Check for required files
+        vectors_path = index_dir / "vectors.npy"
+        graph_path = index_dir / "graph.json"
+        metadata_path = index_dir / "metadata.json"
+        info_path = index_dir / "index_info.json"
+
+        for path in [vectors_path, graph_path, metadata_path, info_path]:
+            if not path.exists():
+                raise FileNotFoundError(f"Required file not found: {path}")
+
+        # 1. Load index info
+        with open(info_path, "r") as f:
+            index_info = json.load(f)
+
+        logger.debug(f"Index info: {index_info}")
+
+        # 2. Load vectors
+        vectors = np.load(vectors_path)
+        logger.debug(f"Loaded vectors: {vectors.shape}")
+
+        # 3. Verify checksum if requested
+        if verify_checksum:
+            logger.debug("Verifying checksum...")
+            actual_checksum = hashlib.sha256(vectors.tobytes()).hexdigest()
+            expected_checksum = index_info["checksum"]
+
+            if actual_checksum != expected_checksum:
+                raise ValueError(
+                    f"Checksum mismatch! Index may be corrupted.\n"
+                    f"Expected: {expected_checksum}\n"
+                    f"Actual: {actual_checksum}"
+                )
+            logger.debug("Checksum verified ✓")
+
+        # 4. Load metadata
+        with open(metadata_path, "r") as f:
+            metadata_list = json.load(f)
+        logger.debug(f"Loaded metadata: {len(metadata_list)} entries")
+
+        # 5. Load graph structure
+        with open(graph_path, "r") as f:
+            graph_data = json.load(f)
+        logger.debug(f"Loaded graph: {len(graph_data['nodes'])} nodes")
+
+        # 6. Create HNSW index with saved configuration
+        index = cls(
+            dimension=index_info["dimension"],
+            m=index_info["m"],
+            m0=index_info.get("m0"),  # May not exist in older versions
+            ef_construction=index_info["ef_construction"],
+            ml=index_info.get("ml"),  # May not exist in older versions
+            similarity_metric=index_info["similarity_metric"],
+            normalized=index_info["normalized"],
+            use_heuristic=index_info.get("use_heuristic", True),  # Default to True
+        )
+
+        # 7. Restore vectors to contiguous storage
+        n_vectors = len(vectors)
+        index._ensure_vector_capacity(n_vectors)
+        index._vector_matrix[:n_vectors] = vectors
+        index._num_vectors = n_vectors
+
+        # 8. Restore graph structure
+        index.entry_point = graph_data["entry_point"]
+        index.level_count = graph_data["level_count"]
+        index.next_node_id = graph_data["next_node_id"]
+
+        # 9. Reconstruct nodes
+        for node_data in graph_data["nodes"]:
+            node_id = node_data["node_id"]
+            level = node_data["level"]
+            metadata = metadata_list[node_id]
+
+            # Create node
+            node = HNSWNode(
+                node_id=node_id,
+                vector=None,  # Don't store reference, use matrix instead
+                metadata=metadata,
+                level=level,
+            )
+
+            # Restore neighbors (convert back from string keys to int keys)
+            for layer_str, neighbor_list in node_data["neighbors"].items():
+                layer = int(layer_str)
+                node.neighbors[layer] = set(neighbor_list)
+
+            index.nodes[node_id] = node
+
+        logger.info(
+            f"HNSW index loaded successfully: {len(index)} vectors, "
+            f"{index.level_count} levels, {index_info['dimension']}D"
+        )
+
+        return index
 
 
 def create_hnsw_index(

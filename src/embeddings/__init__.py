@@ -9,6 +9,7 @@ This module provides:
 - L2 normalization
 - CPU-only execution support
 - Deterministic embeddings
+- Embeddings persistence (save/load from disk)
 
 Main Functions:
     From model:
@@ -22,6 +23,15 @@ Main Functions:
         - normalize_embeddings: Apply L2 normalization
         - compute_embedding_statistics: Calculate embedding stats
         - verify_embedding_determinism: Verify deterministic behavior
+
+    From persistence:
+        - save_embeddings: Save embeddings to disk
+        - load_embeddings: Load embeddings from disk
+        - embeddings_exist: Check if embeddings exist
+        - get_embeddings_for_chunks: Get embeddings for specific chunks
+        - update_embeddings: Add new embeddings to collection
+        - delete_embeddings: Delete embeddings collection
+        - get_all_embedding_collections: List all collections
 
 Default Model:
 - sentence-transformers/all-MiniLM-L6-v2
@@ -52,6 +62,16 @@ from .pipeline import (
     verify_embedding_determinism,
 )
 
+from .persistence import (
+    save_embeddings,
+    load_embeddings,
+    embeddings_exist,
+    get_embeddings_for_chunks,
+    update_embeddings,
+    delete_embeddings,
+    get_all_embedding_collections,
+)
+
 __all__ = [
     # Model functions
     "load_embedding_model",
@@ -64,4 +84,12 @@ __all__ = [
     "normalize_embeddings",
     "compute_embedding_statistics",
     "verify_embedding_determinism",
+    # Persistence functions
+    "save_embeddings",
+    "load_embeddings",
+    "embeddings_exist",
+    "get_embeddings_for_chunks",
+    "update_embeddings",
+    "delete_embeddings",
+    "get_all_embedding_collections",
 ]

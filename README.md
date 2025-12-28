@@ -40,9 +40,14 @@ python main.py
 ### Basic Usage
 
 ```bash
-# 1. Preview how documents are chunked
+# 1. Preview how documents are chunked (supports multiple formats)
 echo "Vector databases enable semantic search by converting text into embeddings." > data/raw/sample.txt
 python main.py preview data/raw/sample.txt
+
+# Try with different formats
+python main.py preview data/raw/samples/sample_document.pdf
+python main.py preview data/raw/samples/sample_document.docx
+python main.py preview data/raw/samples/sample_document.md
 
 # 2. Test embedding generation
 python main.py embed-demo "What is a vector database?"
@@ -78,6 +83,30 @@ src/
 └── benchmarks/      # Performance evaluation tools
 ```
 
+### Supported Document Formats
+
+The system can ingest and process multiple document formats:
+
+| Format | Extensions | Extraction Method | Status |
+|--------|-----------|-------------------|---------|
+| **Plain Text** | `.txt` | Direct reading | ✅ Fully supported |
+| **PDF** | `.pdf` | PyMuPDF (fitz) | ✅ Fully supported |
+| **Word Documents** | `.docx`, `.doc` | python-docx | ✅ Fully supported |
+| **Markdown** | `.md`, `.markdown` | Regex-based parser | ✅ Fully supported |
+
+**Features:**
+- Automatic format detection based on file extension
+- Preserves document structure (headings, paragraphs, tables)
+- Handles multi-page documents (PDF with page markers)
+- Configurable extraction options in `config.yaml`
+
+**Limitations:**
+- Scanned PDFs require OCR (pytesseract, optional)
+- Password-protected PDFs are not supported
+- Legacy `.doc` files require additional dependencies (textract)
+
+**Sample documents** are included in `data/raw/samples/` for testing.
+
 ### How it works
 
 ```
@@ -93,7 +122,7 @@ src/
                                            or HNSW)
 ```
 
-1. **Ingestion**: Load `.txt` files, normalize whitespace, split into overlapping chunks
+1. **Ingestion**: Load documents (TXT, PDF, DOCX, Markdown), extract text, split into overlapping chunks
 2. **Embedding**: Convert chunks to 384-dim vectors using `all-MiniLM-L6-v2`
 3. **Indexing**: Store vectors with either:
    - **Brute-force**: Exact search (100% recall, O(n) time)

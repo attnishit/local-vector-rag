@@ -15,7 +15,10 @@
       "Bash(echo:*)",
       "Bash(fi)",
       "Bash(done)",
-      "Bash(wait)"
+      "Bash(wait)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo create:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

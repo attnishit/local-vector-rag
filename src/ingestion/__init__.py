@@ -4,11 +4,12 @@ Document Ingestion and Chunking Module
 Author: Nishit Attrey
 
 This module provides:
-- Document loading from .txt files
+- Document loading from multiple formats (.txt, .pdf, .docx, .md)
 - Text normalization and whitespace handling
 - Chunking with configurable size and overlap
 - Stable chunk ID generation
 - Document and chunk statistics
+- Chunk persistence (save/load from disk)
 
 Main Functions:
     From loader:
@@ -20,6 +21,14 @@ Main Functions:
         - chunk_text: Split text into overlapping chunks
         - normalize_text: Normalize whitespace
         - chunk_statistics: Calculate statistics about chunks
+
+    From persistence:
+        - save_chunks: Save chunks to disk with metadata
+        - load_chunks: Load chunks from disk
+        - chunks_exist: Check if chunks exist for a document
+        - should_rechunk: Determine if document needs re-chunking
+        - get_all_chunked_documents: List all chunked documents
+        - delete_chunks: Delete chunks for a document
 
 Example:
     >>> from src.ingestion import load_documents_from_directory, chunk_text
@@ -44,6 +53,16 @@ from .chunker import (
     chunk_statistics,
 )
 
+from .persistence import (
+    save_chunks,
+    load_chunks,
+    chunks_exist,
+    should_rechunk,
+    get_all_chunked_documents,
+    delete_chunks,
+    compute_file_hash,
+)
+
 __all__ = [
     # Loader functions
     "load_document",
@@ -55,4 +74,12 @@ __all__ = [
     "normalize_text",
     "generate_chunk_id",
     "chunk_statistics",
+    # Persistence functions
+    "save_chunks",
+    "load_chunks",
+    "chunks_exist",
+    "should_rechunk",
+    "get_all_chunked_documents",
+    "delete_chunks",
+    "compute_file_hash",
 ]

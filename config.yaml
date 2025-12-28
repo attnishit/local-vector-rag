@@ -55,11 +55,34 @@ ingestion:
   # Number of characters to overlap between chunks
   chunk_overlap: 50
 
-  # Supported file formats (Stage 2: txt only)
-  supported_formats: ["txt"]
+  # Supported file formats (updated to include PDF, DOCX, Markdown)
+  supported_formats: ["txt", "pdf", "docx", "doc", "md", "markdown"]
 
   # Text encoding for file reading
   encoding: "utf-8"
+
+  # Format-specific extraction options
+  pdf:
+    # Use OCR for scanned PDFs (requires pytesseract)
+    ocr_enabled: false
+    # Extract image descriptions (not yet implemented)
+    extract_images: false
+
+  docx:
+    # Include header content in extraction
+    include_headers: true
+    # Include footer content in extraction
+    include_footers: false
+    # Preserve paragraph formatting and heading markers
+    preserve_formatting: true
+
+  markdown:
+    # Keep header markers (# Header) for context
+    preserve_headers: true
+    # Include code block content
+    preserve_code_blocks: true
+    # Keep link URLs as footnotes
+    preserve_links: false
 
 # Stage 3: Local Embedding Pipeline
 embeddings:

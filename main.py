@@ -118,11 +118,6 @@ def validate_setup(config, logger):
     logger.info('  python main.py search-demo "query" - Demo vector search')
     logger.info('  python main.py query-demo "query"  - Demo query pipeline')
     logger.info("  python main.py benchmark           - Run performance benchmarks")
-    logger.info("")
-    logger.info("Next Steps:")
-    logger.info("  1. Add .txt files to data/raw/")
-    logger.info('  2. Test query pipeline: python main.py query-demo "sample query"')
-    logger.info("  3. Run benchmarks: python main.py benchmark")
     logger.info("=" * 60)
 
 
@@ -177,6 +172,7 @@ def cmd_preview(args, config, logger):
     print(f"\n{'=' * 80}")
     print(f"Document: {doc['doc_id']}")
     print(f"File: {filepath}")
+    print(f"Format: {doc.get('format', 'txt')}")
     print(f"{'=' * 80}")
     print(f"\nDocument Statistics:")
     print(f"  Size: {doc['size']:,} characters")
@@ -864,9 +860,11 @@ Examples:
 
         # Preview command (Stage 2)
         preview_parser = subparsers.add_parser(
-            "preview", help="Preview chunks from a document file (Stage 2)"
+            "preview", help="Preview chunks from a document file (supports: txt, pdf, docx, md)"
         )
-        preview_parser.add_argument("file", type=str, help="Path to document file to preview")
+        preview_parser.add_argument(
+            "file", type=str, help="Path to document file (.txt, .pdf, .docx, .doc, .md)"
+        )
         preview_parser.add_argument(
             "--num-chunks",
             type=int,

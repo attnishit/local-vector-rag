@@ -8,202 +8,12 @@
 
 ## Overview
 
-This plan addresses 5 core problems to make the Local Vector RAG Database production-ready:
+This plan addresses 4 core problems to make the Local Vector RAG Database production-ready:
 
-0. **Multi-Format Document Support**: Extend beyond .txt to PDF, DOCX, and Markdown
 1. **Disk-based Persistence**: Convert from in-memory to permanent storage
 2. **Clean Architecture**: Remove hardcoded data from main.py
 3. **Global CLI Command**: Create proper `rag` command that works anywhere
 4. **GUI Interface**: Build user-friendly interface for all functionality
-
----
-
-## Problem 0: Multi-Format Document Support
-
-### Current State
-- Only `.txt` files supported (hardcoded in `config.yaml`)
-- `src/ingestion/loader.py` only handles plain text files
-- Real-world documents come in many formats: PDF, Word, Markdown, etc.
-- Users must manually convert documents to .txt before using the system
-- Missing a huge opportunity for practical use cases
-
-### Goal
-Enable the RAG system to ingest documents in multiple common formats:
-- **PDF** (.pdf): Research papers, books, reports, scanned documents
-- **Word Documents** (.docx, .doc): Business documents, articles, drafts
-- **Markdown** (.md): Documentation, README files, technical writing
-- **Plain Text** (.txt): Already supported, keep as baseline
-
-### Implementation Steps
-
-#### Step 0.1: Add Document Format Detection
-**File**: `src/ingestion/loader.py`
-- Add function `detect_format(filepath: Path) -> str` using file extension
-- Support: .txt, .pdf, .docx, .doc, .md
-- Raise clear error for unsupported formats
-- Return normalized format identifier (e.g., "pdf", "docx", "markdown")
-
-**Expected Result**: System can identify document type from extension
-
-#### Step 0.2: Implement PDF Text Extraction
-**New file**: `src/ingestion/extractors/pdf.py`
-- Install dependency: `pypdf` or `PyMuPDF` (fitz)
-- Implement `extract_text_from_pdf(filepath: Path) -> str`
-- Handle:
-  - Multi-page documents (concatenate with page markers)
-  - Scanned PDFs with OCR (optional: use `pytesseract` if available)
-  - Metadata extraction (title, author) for better chunking context
-  - Tables and formatting (preserve structure where possible)
-- Return normalized plain text
-
-**Dependencies to add**:
-```txt
-PyMuPDF>=1.23.0  # or pypdf>=3.0.0
-pytesseract>=0.3.10  # optional, for OCR
-```
-
-**Expected Result**: Can extract text from PDF files accurately
-
-#### Step 0.3: Implement DOCX/DOC Text Extraction
-**New file**: `src/ingestion/extractors/docx.py`
-- Install dependency: `python-docx` for .docx
-- Install dependency: `textract` or `pywin32` for legacy .doc (optional)
-- Implement `extract_text_from_docx(filepath: Path) -> str`
-- Handle:
-  - Paragraphs and headings (preserve hierarchy markers)
-  - Tables (extract as formatted text)
-  - Headers/footers (include or skip based on config)
-  - Embedded images (skip text extraction, log presence)
-- Return normalized plain text
-
-**Dependencies to add**:
-```txt
-python-docx>=1.0.0
-textract>=1.6.5  # optional, for .doc support
-```
-
-**Expected Result**: Can extract text from Word documents
-
-#### Step 0.4: Implement Markdown Text Extraction
-**New file**: `src/ingestion/extractors/markdown.py`
-- Install dependency: `markdown` or use simple parser
-- Implement `extract_text_from_markdown(filepath: Path) -> str`
-- Options:
-  - **Option A**: Strip markdown syntax entirely (clean text only)
-  - **Option B**: Preserve some structure (keep headers for context)
-  - **Recommended**: Option B - keep headers, remove links/formatting
-- Handle:
-  - Code blocks (include or skip based on config)
-  - Links (extract URL in footnote or remove)
-  - Images (skip, just keep alt text)
-  - Tables (convert to plain text representation)
-- Return normalized plain text
-
-**Dependencies to add**:
-```txt
-markdown>=3.5.0  # optional, or use regex-based parser
-```
-
-**Expected Result**: Can extract clean text from Markdown files
-
-#### Step 0.5: Update Document Loader
-**File**: `src/ingestion/loader.py`
-- Refactor `load_document()` to route by format:
-  ```python
-  def load_document(filepath: Path, encoding: str = "utf-8") -> Dict:
-      format = detect_format(filepath)
-
-      if format == "txt":
-          text = _load_text_file(filepath, encoding)
-      elif format == "pdf":
-          text = extract_text_from_pdf(filepath)
-      elif format == "docx":
-          text = extract_text_from_docx(filepath)
-      elif format == "markdown":
-          text = extract_text_from_markdown(filepath)
-      else:
-          raise ValueError(f"Unsupported format: {format}")
-
-      return {
-          "doc_id": filepath.stem,
-          "text": text,
-          "format": format,
-          "source": str(filepath),
-          "size": len(text)
-      }
-  ```
-- Add error handling for extraction failures
-- Log warnings for documents that fail to extract
-
-**Expected Result**: Universal document loader that handles all formats
-
-#### Step 0.6: Update Configuration
-**File**: `config.yaml`
-- Update `ingestion.supported_formats`:
-  ```yaml
-  ingestion:
-    supported_formats: ["txt", "pdf", "docx", "doc", "md"]
-  ```
-- Add format-specific options (optional):
-  ```yaml
-  ingestion:
-    pdf:
-      ocr_enabled: false  # Use OCR for scanned PDFs
-      extract_images: false
-    docx:
-      include_headers: true
-      include_footers: false
-    markdown:
-      preserve_code_blocks: true
-      preserve_headers: true
-  ```
-
-**Expected Result**: Configurable format support
-
-#### Step 0.7: Update CLI Commands
-**File**: `main.py` (or `src/cli/commands.py`)
-- Update `cmd_preview()` to accept any supported format
-- Update help text to mention supported formats
-- Add format auto-detection in collection creation
-- Example usage:
-  ```bash
-  python main.py preview data/raw/paper.pdf
-  python main.py preview data/raw/report.docx
-  python main.py preview data/raw/README.md
-  ```
-
-**Expected Result**: All demo commands work with new formats
-
-#### Step 0.8: Add Format-Specific Tests
-**New file**: `tests/test_extractors.py` (if tests exist)
-- Test PDF extraction with sample PDF
-- Test DOCX extraction with sample document
-- Test Markdown extraction with sample .md file
-- Test format detection
-- Test error handling for corrupted files
-
-**Expected Result**: Robust format support with test coverage
-
-#### Step 0.9: Create Sample Documents
-**New files**: `data/raw/samples/`
-- Create `sample_document.pdf`: Multi-page PDF with tables
-- Create `sample_document.docx`: Word doc with formatting
-- Create `sample_document.md`: Markdown with code blocks
-- Update README with examples using these files
-
-**Expected Result**: Users can test all formats immediately
-
-#### Step 0.10: Update Documentation
-**Files**: `README.md`, `CLAUDE.md`
-- Add "Supported Formats" section to README
-- Document format-specific behavior and limitations
-- Add troubleshooting for common format issues:
-  - Scanned PDFs may need OCR
-  - Legacy .doc files require additional dependencies
-  - Password-protected PDFs not supported
-- Update CLAUDE.md with extractor architecture
-
-**Expected Result**: Clear documentation of multi-format capabilities
 
 ---
 
@@ -568,56 +378,48 @@ User-friendly GUI that exposes all functionality:
 
 ## Implementation Order (Priority)
 
-### Phase 0: Multi-Format Support (Week 1)
-1. [ ] Problem 0, Steps 0.1-0.5: Core format extractors (PDF, DOCX, MD)
-2. [ ] Problem 0, Steps 0.6-0.7: Configuration and CLI updates
-3. [ ] Problem 0, Steps 0.8-0.10: Testing and documentation
+### Phase 0: Multi-Format Support
+1. ✅ Problem 0, Steps 0.1-0.5: Core format extractors (PDF, DOCX, MD)
+2. ✅ Problem 0, Steps 0.6-0.7: Configuration and CLI updates
+3. ✅ Problem 0, Steps 0.8-0.10: Testing and documentation
 
-**Milestone**: Can ingest PDF, DOCX, and Markdown documents
+**Milestone**: ✅ Can ingest PDF, DOCX, and Markdown documents
 
-### Phase 1: Foundation (Week 2)
+### Phase 1: Foundation
 4. ✅ Problem 1, Steps 1.1-1.4: Persistence layer
 5. ✅ Problem 2, Steps 2.1-2.3: Remove hardcoded data
 6. ✅ Problem 1, Step 1.6: Collection system
 
-**Milestone**: Can save/load collections from disk
+**Milestone**: ✅ Can save/load collections from disk
 
-### Phase 2: CLI (Week 3)
+### Phase 2: CLI
 7. ✅ Problem 3, Steps 3.1-3.5: Global CLI command
 8. ✅ Problem 2, Step 2.4: Refactor main.py structure
 9. ✅ Problem 1, Step 1.5: Incremental updates
 
-**Milestone**: `rag` command works globally with collections
+**Milestone**: ✅ `rag` command works globally with collections
 
-### Phase 3: Advanced Features (Week 4)
+### Phase 3: Advanced Features
 10. ✅ Problem 1, Step 1.2: HNSW persistence
 11. ✅ Problem 2, Step 2.5: Documentation updates
 12. ✅ Problem 3, Step 3.6: Installation docs
 
-**Milestone**: Production-ready CLI tool
+**Milestone**: ✅ Production-ready CLI tool
 
-### Phase 4: GUI (Week 5)
+### Phase 4: GUI
 13. ✅ Problem 4, Steps 4.1-4.7: Complete GUI implementation
 
-**Milestone**: Full-featured application with UI
+**Milestone**: ✅ Full-featured application with UI
 
 ---
 
 ## Success Criteria
 
-### Multi-Format Support
-- [ ] Can extract text from PDF files accurately
-- [ ] Can extract text from DOCX files (and optionally .doc)
-- [ ] Can parse Markdown files while preserving structure
-- [ ] All demo commands work with PDF, DOCX, and MD files
-- [ ] Format detection works automatically based on file extension
-- [ ] Clear error messages for unsupported or corrupted files
-
 ### Persistence
-- [ ] Can create collection once, query it repeatedly
-- [ ] Adding documents doesn't require full rebuild
-- [ ] System survives restart without data loss
-- [ ] Multiple collections can coexist
+- ✅ Can create collection once, query it repeatedly
+- ✅ Adding documents doesn't require full rebuild
+- ✅ System survives restart without data loss
+- ✅ Multiple collections can coexist
 
 ### CLI
 - [ ] `rag` command works from any directory

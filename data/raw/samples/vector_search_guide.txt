@@ -1,0 +1,33 @@
+Vector Search and Retrieval-Augmented Generation
+
+Vector search is a powerful technique for finding similar items in large datasets. Unlike traditional keyword-based search, vector search uses mathematical representations (embeddings) of text, images, or other data to find semantically similar content.
+
+How Vector Search Works
+
+The process begins with converting documents into high-dimensional vectors using embedding models. These vectors capture the semantic meaning of the text, allowing the system to find documents that are conceptually similar even if they don't share exact keywords.
+
+For example, a search for "feline pets" would also return documents about "cats" because their vector representations are close in the embedding space.
+
+Hierarchical Navigable Small World (HNSW)
+
+HNSW is a graph-based algorithm for approximate nearest neighbor search. It builds a multi-layer graph structure where each layer contains connections between similar vectors. The top layers have long-range connections for fast navigation, while the bottom layer contains all vectors with precise local connections.
+
+The search process starts at the top layer and greedily moves to the closest neighbor at each step. When reaching the bottom layer, it performs a more thorough local search to find the k nearest neighbors.
+
+Retrieval-Augmented Generation
+
+RAG combines vector search with large language models to provide accurate, contextual answers. When a user asks a question, the system first retrieves relevant document chunks using vector search, then feeds these chunks to an LLM as context for generating an answer.
+
+This approach grounds the LLM's responses in actual documents, reducing hallucinations and providing citations for the generated content.
+
+Cosine Similarity
+
+The most common distance metric for vector search is cosine similarity, which measures the angle between two vectors. A cosine similarity of 1 means the vectors point in exactly the same direction (identical meaning), while 0 means they are orthogonal (unrelated).
+
+Unlike Euclidean distance, cosine similarity is not affected by the magnitude of vectors, only their direction. This makes it ideal for comparing text embeddings where the length of the document shouldn't affect similarity.
+
+Implementation Considerations
+
+Building a vector database from scratch requires careful attention to correctness, efficiency, and scalability. While simple brute-force search works for small datasets, larger applications need approximate algorithms like HNSW to maintain reasonable query times.
+
+Key considerations include choosing appropriate chunk sizes, managing the trade-off between recall and speed, and ensuring deterministic behavior for reproducible results.

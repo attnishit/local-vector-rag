@@ -64,8 +64,8 @@ src/
 ├── ingestion/          # Document loading and text chunking
 │   ├── loader.py       # Load documents, detect format, route to extractors
 │   ├── chunker.py      # Fixed-size chunking with overlap
-│   └── extractors/     # Format-specific text extraction (planned)
-│       ├── pdf.py      # PDF text extraction (PyMuPDF/pypdf)
+│   └── extractors/     # Format-specific text extraction
+│       ├── pdf.py      # PDF text extraction (PyMuPDF)
 │       ├── docx.py     # Word document extraction (python-docx)
 │       └── markdown.py # Markdown parsing
 │

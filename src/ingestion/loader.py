@@ -22,7 +22,65 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
+from .extractors import (
+    extract_text_from_pdf,
+    extract_text_from_docx,
+    extract_text_from_markdown,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def detect_format(filepath: Path) -> str:
+    """
+    Detect document format based on file extension.
+
+    Identifies the document type to route to the appropriate text extractor.
+
+    Args:
+        filepath: Path to the document file
+
+    Returns:
+        Normalized format identifier (e.g., "txt", "pdf", "docx", "markdown")
+
+    Raises:
+        ValueError: If file format is not supported
+
+    Example:
+        >>> detect_format(Path("document.pdf"))
+        'pdf'
+        >>> detect_format(Path("notes.md"))
+        'markdown'
+        >>> detect_format(Path("report.docx"))
+        'docx'
+
+    Supported formats:
+        - .txt -> "txt"
+        - .pdf -> "pdf"
+        - .docx, .doc -> "docx"
+        - .md, .markdown -> "markdown"
+    """
+    extension = filepath.suffix.lower()
+
+    # Map file extensions to normalized format names
+    format_map = {
+        ".txt": "txt",
+        ".pdf": "pdf",
+        ".docx": "docx",
+        ".doc": "docx",  # Treat legacy .doc as docx (requires special handling)
+        ".md": "markdown",
+        ".markdown": "markdown",
+    }
+
+    if extension not in format_map:
+        supported = ", ".join(sorted(set(format_map.values())))
+        raise ValueError(
+            f"Unsupported file format: {extension}\n"
+            f"Supported formats: {supported}\n"
+            f"File: {filepath}"
+        )
+
+    return format_map[extension]
 
 
 def get_document_id(filepath: Path) -> str:
@@ -57,12 +115,12 @@ def load_document(filepath: Path, encoding: str = "utf-8") -> Optional[Dict[str,
     """
     Load a single document from a file.
 
-    Reads the file content and returns a document dictionary with
-    metadata and text content.
+    Automatically detects file format and routes to the appropriate extractor.
+    Supports: .txt, .pdf, .docx, .doc, .md, .markdown
 
     Args:
         filepath: Path to the document file
-        encoding: Text encoding to use (default: utf-8)
+        encoding: Text encoding to use for text files (default: utf-8)
 
     Returns:
         Document dictionary containing:
@@ -70,11 +128,12 @@ def load_document(filepath: Path, encoding: str = "utf-8") -> Optional[Dict[str,
         - filepath: Original file path (as string)
         - text: Document text content
         - size: Size in characters
+        - format: Detected document format (txt, pdf, docx, markdown)
         Or None if file cannot be read
 
     Example:
-        >>> doc = load_document(Path("data/raw/sample.txt"))
-        >>> print(f"{doc['doc_id']}: {doc['size']} characters")
+        >>> doc = load_document(Path("data/raw/sample.pdf"))
+        >>> print(f"{doc['doc_id']}: {doc['size']} characters ({doc['format']})")
 
     Note:
         Returns None on error rather than raising exception,
@@ -89,8 +148,69 @@ def load_document(filepath: Path, encoding: str = "utf-8") -> Optional[Dict[str,
             logger.error(f"Not a file: {filepath}")
             return None
 
-        with open(filepath, "r", encoding=encoding) as f:
-            text = f.read()
+        # Detect document format
+        try:
+            doc_format = detect_format(filepath)
+        except ValueError as e:
+            logger.error(str(e))
+            return None
+
+        # Route to appropriate extractor based on format
+        text = None
+
+        if doc_format == "txt":
+            # Plain text file - read directly
+            try:
+                with open(filepath, "r", encoding=encoding) as f:
+                    text = f.read()
+            except UnicodeDecodeError as e:
+                logger.error(
+                    f"Encoding error reading {filepath}: {e}\\n"
+                    f"Try a different encoding (current: {encoding})"
+                )
+                return None
+
+        elif doc_format == "pdf":
+            # PDF file - use PyMuPDF extractor
+            try:
+                text = extract_text_from_pdf(filepath)
+            except ImportError as e:
+                logger.error(f"Missing dependency: {e}")
+                return None
+            except ValueError as e:
+                logger.error(f"PDF error: {e}")
+                return None
+
+        elif doc_format == "docx":
+            # DOCX/DOC file - use python-docx extractor
+            try:
+                text = extract_text_from_docx(filepath)
+            except ImportError as e:
+                logger.error(f"Missing dependency: {e}")
+                return None
+            except ValueError as e:
+                logger.error(f"DOCX error: {e}")
+                return None
+
+        elif doc_format == "markdown":
+            # Markdown file - use markdown extractor
+            try:
+                text = extract_text_from_markdown(filepath, encoding=encoding)
+            except UnicodeDecodeError as e:
+                logger.error(f"Encoding error reading {filepath}: {e}")
+                return None
+
+        else:
+            logger.error(f"Unsupported format: {doc_format} for file {filepath}")
+            return None
+
+        # Check if extraction succeeded
+        if text is None:
+            logger.error(f"Text extraction failed for {filepath}")
+            return None
+
+        # Normalize whitespace (already done in extractors, but ensure consistency)
+        text = text.strip()
 
         doc_id = get_document_id(filepath)
 
@@ -99,18 +219,15 @@ def load_document(filepath: Path, encoding: str = "utf-8") -> Optional[Dict[str,
             "filepath": str(filepath),
             "text": text,
             "size": len(text),
+            "format": doc_format,
         }
 
-        logger.debug(f"Loaded document {doc_id}: {len(text)} characters from {filepath}")
+        logger.debug(
+            f"Loaded document {doc_id}: {len(text)} characters "
+            f"from {filepath} (format: {doc_format})"
+        )
 
         return document
-
-    except UnicodeDecodeError as e:
-        logger.error(
-            f"Encoding error reading {filepath}: {e}\n"
-            f"Try a different encoding (current: {encoding})"
-        )
-        return None
 
     except PermissionError:
         logger.error(f"Permission denied reading {filepath}")
