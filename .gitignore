@@ -102,6 +102,7 @@ dmypy.json
 *.tmp
 *.bak
 *.swp
+PLAN.md
 
 # Claude specific
 claude.md
