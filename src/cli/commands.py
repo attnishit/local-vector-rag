@@ -158,41 +158,40 @@ def cmd_index(args, config: Dict[str, Any], logger) -> int:
 
         collection = create_collection(
             name=args.name,
-            source_path=directory_path,
+            documents_dir=directory_path,
             algorithm=args.algorithm,
             config=config,
-            logger=logger,
+            show_progress=True,
         )
 
         print(f"\n✓ Collection '{args.name}' created successfully!")
-        print(f"  Documents: {collection.num_documents}")
-        print(f"  Chunks: {collection.num_chunks}")
-        print(f"  Embeddings: {collection.num_embeddings}")
-        print(f"  Algorithm: {collection.algorithm}\n")
+
+        # Get collection info
+        info = collection.info()
+        print(f"  Documents: {info['num_documents']}")
+        print(f"  Chunks: {info['num_chunks']}")
+        print(f"  Embeddings: {info['num_embeddings']}")
+        print(f"  Algorithm: {info['algorithm']}\n")
 
         # Test query if requested
         if args.test_query:
             print(f"Running test query: '{args.test_query}'...\n")
 
-            pipeline = create_query_pipeline(
-                collection_name=args.name, config=config, logger=logger
-            )
-
-            results = pipeline.query(query_text=args.test_query, top_k=3, min_score=0.0)
+            results = collection.search(query=args.test_query, k=3)
 
             print(f"Top 3 results:")
             for i, result in enumerate(results, 1):
                 print(f"\n{i}. Score: {result['score']:.4f}")
-                print(f"   Source: {result['metadata']['source']}")
-                preview = result["text"][:200]
-                if len(result["text"]) > 200:
+                print(f"   Chunk ID: {result['metadata']['chunk_id']}")
+                preview = result["metadata"]["text"][:200]
+                if len(result["metadata"]["text"]) > 200:
                     preview += "..."
                 print(f"   Text: {preview}")
 
             print()
 
         print(f"{'=' * 80}\n")
-        logger.info(f"Index complete: collection '{args.name}' with {collection.num_embeddings} embeddings")
+        logger.info(f"Index complete: collection '{args.name}' with {info['num_embeddings']} embeddings")
         return 0
 
     except Exception as e:

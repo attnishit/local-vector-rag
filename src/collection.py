@@ -185,6 +185,9 @@ class Collection:
         all_new_embeddings = []
         all_new_chunk_ids = []
 
+        # Collect all chunks (new and existing)
+        all_chunks_for_embedding = []
+
         # Process each document
         for doc in docs:
             doc_id = doc["doc_id"]
@@ -210,16 +213,41 @@ class Collection:
 
                 # Collect chunks for embedding
                 all_new_chunks.extend(chunks)
+                all_chunks_for_embedding.extend(chunks)
             else:
-                logger.debug(f"Chunks up-to-date for document '{doc_id}', skipping")
+                # Chunks exist - load them to check if embeddings exist
+                try:
+                    chunk_data = load_chunks(doc_id, self.chunks_dir)
+                    chunks = chunk_data["chunks"]
+                    all_chunks_for_embedding.extend(chunks)
+                    logger.debug(f"Loaded {len(chunks)} existing chunks for document '{doc_id}'")
+                except Exception as e:
+                    logger.warning(f"Could not load chunks for document '{doc_id}': {e}")
 
-        # Generate embeddings for new chunks
-        if all_new_chunks:
-            logger.info(f"Generating embeddings for {len(all_new_chunks)} new chunks")
+        # Check which chunks need embeddings
+        # Get existing embeddings if any
+        existing_chunk_ids = set()
+        if embeddings_exist(self.name, self.embeddings_dir):
+            try:
+                emb_data = load_embeddings(self.name, self.embeddings_dir)
+                existing_chunk_ids = set(emb_data["chunk_ids"])
+                logger.debug(f"Found {len(existing_chunk_ids)} existing embeddings")
+            except Exception as e:
+                logger.warning(f"Could not load existing embeddings: {e}")
+
+        # Filter to only chunks that need embeddings
+        chunks_needing_embeddings = [
+            chunk for chunk in all_chunks_for_embedding
+            if chunk["chunk_id"] not in existing_chunk_ids
+        ]
+
+        # Generate embeddings for chunks that need them
+        if chunks_needing_embeddings:
+            logger.info(f"Generating embeddings for {len(chunks_needing_embeddings)} chunks")
 
             # Extract texts and chunk_ids
-            texts = [chunk["text"] for chunk in all_new_chunks]
-            chunk_ids = [chunk["chunk_id"] for chunk in all_new_chunks]
+            texts = [chunk["text"] for chunk in chunks_needing_embeddings]
+            chunk_ids = [chunk["chunk_id"] for chunk in chunks_needing_embeddings]
 
             # Generate embeddings
             batch_size = self.config["embeddings"]["batch_size"]
@@ -251,7 +279,7 @@ class Collection:
             logger.info(f"Updated embeddings collection with {len(embeddings)} new embeddings")
 
             # Update vector index
-            self._update_index(all_new_embeddings, all_new_chunks)
+            self._update_index(all_new_embeddings, chunks_needing_embeddings)
 
         logger.info(f"Completed adding documents to collection '{self.name}': {stats}")
         return stats
