@@ -533,3 +533,324 @@ def cmd_info(args, config: Dict[str, Any], logger) -> int:
 
         traceback.print_exc()
         return 1
+
+
+def cmd_generate(args, config: Dict[str, Any], logger) -> int:
+    """
+    Generate answer using RAG (retrieval + LLM generation).
+
+    Args:
+        args: Parsed command-line arguments
+        config: Configuration dictionary
+        logger: Logger instance
+
+    Returns:
+        Exit code (0 for success, 1 for error)
+
+    Example:
+        rag generate "What is HNSW?" --collection my_docs --stream
+    """
+    try:
+        collection_name = args.collection
+        query_text = args.query
+        top_k = args.top_k
+        stream = args.stream
+        template = args.template
+        model = args.model
+        temperature = args.temperature
+
+        print(f"\n{'=' * 80}")
+        print(f"RAG Query: '{query_text}'")
+        print(f"Collection: {collection_name}")
+        print(f"{'=' * 80}\n")
+
+        logger.info(f"Generating answer for: {query_text}")
+        logger.debug(f"Parameters: k={top_k}, stream={stream}, template={template}")
+
+        # Load collection
+        collection = load_collection(collection_name, config=config)
+
+        # Check if generation is enabled
+        gen_config = config.get("generation", {})
+        if not gen_config.get("enabled", True):
+            print("✗ ERROR: Generation is disabled in config.yaml", file=sys.stderr)
+            return 1
+
+        # Generate answer
+        result = collection.generate_answer(
+            query=query_text,
+            k=top_k,
+            stream=stream,
+            template=template,
+            model=model,
+            temperature=temperature,
+            custom_template_path=getattr(args, 'custom_template', None),
+        )
+
+        # Display answer
+        print("Answer:")
+        print("-" * 80)
+        if stream:
+            # Stream tokens as they arrive
+            for token in result['answer']:
+                print(token, end='', flush=True)
+            print("\n")
+        else:
+            print(result['answer'])
+            print()
+
+        # Display confidence
+        from src.generation import get_confidence_level, explain_confidence
+        confidence = result['confidence']
+        confidence_level = get_confidence_level(confidence)
+        print(f"Confidence: {confidence:.2f} ({confidence_level})")
+        print(explain_confidence(confidence, result.get('sources', [])))
+        print()
+
+        # Display sources
+        print("Sources:")
+        print("-" * 80)
+        cited_sources = [s for s in result['sources'] if s.get('cited', False)]
+
+        if cited_sources:
+            for source in cited_sources:
+                citation_num = source['citation_num']
+                chunk_id = source['chunk_id']
+                score = source['score']
+                text = source['text']
+                # Truncate text preview
+                text_preview = text[:150] + "..." if len(text) > 150 else text
+                print(f"[{citation_num}] {chunk_id} (score: {score:.2f})")
+                print(f'    "{text_preview}"')
+                print()
+        else:
+            print("(No sources were cited in the response)")
+            print()
+
+        print(f"{'=' * 80}\n")
+        logger.info("Answer generation completed successfully")
+        return 0
+
+    except FileNotFoundError:
+        logger.error(f"Collection '{collection_name}' not found")
+        print(f"\n✗ ERROR: Collection '{collection_name}' not found", file=sys.stderr)
+        return 1
+
+    except RuntimeError as e:
+        # Ollama setup errors
+        logger.error(f"Generation failed: {e}")
+        print(f"\n✗ ERROR: {e}\n", file=sys.stderr)
+        print("Setup instructions:", file=sys.stderr)
+        print("1. Install Ollama: https://ollama.ai", file=sys.stderr)
+        print("2. Start Ollama: ollama serve", file=sys.stderr)
+        print("3. Download a model: ollama pull llama2:7b", file=sys.stderr)
+        return 1
+
+    except Exception as e:
+        logger.error(f"Generate command failed: {e}")
+        print(f"\n✗ Error: {e}\n", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+
+
+def cmd_chat(args, config, logger) -> int:
+    """
+    Interactive chat mode with conversation history.
+
+    Allows multi-turn conversations using RAG with context from a collection.
+    Maintains conversation history and provides a REPL interface.
+
+    Args:
+        args: Command line arguments (collection, top_k, model, temperature, save_session)
+        config: Configuration dictionary
+        logger: Logger instance
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+
+    Example:
+        $ rag chat --collection my_docs --top-k 5
+        Chat Mode - Collection: my_docs
+        Type 'exit' to quit, 'clear' to reset history, 'stats' for session info
+
+        You: What is HNSW?
+        Assistant: HNSW is a graph-based algorithm...
+
+        You: How does it work?
+        Assistant: Based on our previous discussion, HNSW builds...
+    """
+    import sys
+    from src.collection import load_collection
+    from src.generation import ConversationHistory
+    from src.generation.confidence import get_confidence_level
+
+    collection_name = args.collection
+
+    try:
+        # Load collection
+        logger.info(f"Loading collection: {collection_name}")
+        collection = load_collection(collection_name, config=config)
+
+        # Initialize conversation history
+        max_tokens = config.get("generation", {}).get("conversation", {}).get("max_tokens", 4096)
+        max_turns = config.get("generation", {}).get("conversation", {}).get("max_turns", 10)
+        save_sessions = config.get("generation", {}).get("conversation", {}).get("save_sessions", False)
+
+        conversation = ConversationHistory(
+            max_tokens=max_tokens,
+            max_turns=max_turns,
+        )
+
+        # Print welcome message
+        print(f"\n{'=' * 60}")
+        print(f"Chat Mode - Collection: {collection_name}")
+        print(f"{'=' * 60}")
+        print("\nCommands:")
+        print("  Type your question to get an answer")
+        print("  'exit' or 'quit' - Exit chat mode")
+        print("  'clear' - Reset conversation history")
+        print("  'stats' - Show session statistics")
+        print("  'help' - Show this help message")
+        print(f"\n{'=' * 60}\n")
+
+        logger.info("Entering interactive chat mode")
+
+        while True:
+            try:
+                # Get user input
+                query = input("\033[1;34mYou:\033[0m ").strip()
+
+                # Handle empty input
+                if not query:
+                    continue
+
+                # Handle commands
+                if query.lower() in ['exit', 'quit', 'q']:
+                    print("\n👋 Exiting chat mode...")
+
+                    # Save session if enabled
+                    if save_sessions:
+                        from pathlib import Path
+                        save_dir = Path(config["paths"]["data_dir"]) / "sessions"
+                        save_path = conversation.save(save_dir)
+                        print(f"Session saved to: {save_path}")
+
+                    break
+
+                elif query.lower() == 'clear':
+                    conversation.clear()
+                    print("\n✓ Conversation history cleared.\n")
+                    continue
+
+                elif query.lower() == 'stats':
+                    stats = conversation.get_stats()
+                    print(f"\nSession Statistics:")
+                    print(f"  Session ID: {stats['session_id']}")
+                    print(f"  Turns: {stats['num_turns']} (max: {stats['max_turns']})")
+                    print(f"  Tokens: {stats['total_tokens']} (max: {stats['max_tokens']})")
+                    print(f"  Created: {stats['created_at']}")
+                    print(f"  Updated: {stats['updated_at']}\n")
+                    continue
+
+                elif query.lower() == 'help':
+                    print("\nCommands:")
+                    print("  Type your question to get an answer")
+                    print("  'exit' or 'quit' - Exit chat mode")
+                    print("  'clear' - Reset conversation history")
+                    print("  'stats' - Show session statistics")
+                    print("  'help' - Show this help message\n")
+                    continue
+
+                # Generate answer with conversation history
+                logger.debug(f"Generating answer for query: {query}")
+
+                # Get conversation history for context
+                history = conversation.get_history()
+
+                # Generate answer using RAG
+                result = collection.generate_answer(
+                    query=query,
+                    k=args.top_k,
+                    stream=True,  # Always stream in chat mode
+                    template="chat",  # Use chat template
+                    model=args.model if hasattr(args, 'model') else None,
+                    temperature=args.temperature if hasattr(args, 'temperature') else 0.7,
+                )
+
+                # Display streaming answer
+                print("\033[1;32mAssistant:\033[0m ", end='', flush=True)
+                answer_parts = []
+                for token in result['answer']:
+                    print(token, end='', flush=True)
+                    answer_parts.append(token)
+                print("\n")  # Newline after answer
+
+                # Combine answer
+                full_answer = ''.join(answer_parts)
+
+                # Add turn to conversation history
+                conversation.add_turn(query, full_answer)
+
+                # Show confidence and source count (optional, can be toggled)
+                if args.verbose if hasattr(args, 'verbose') else False:
+                    confidence = result['confidence']
+                    confidence_level = get_confidence_level(confidence)
+                    cited_sources = [s for s in result['sources'] if s.get('cited', False)]
+
+                    print(f"\n\033[90m[Confidence: {confidence:.2f} ({confidence_level}) | "
+                          f"Sources used: {len(cited_sources)}/{len(result['sources'])}]\033[0m\n")
+
+            except KeyboardInterrupt:
+                print("\n\n👋 Exiting chat mode...")
+                break
+
+            except EOFError:
+                print("\n\n👋 Exiting chat mode...")
+                break
+
+            except Exception as e:
+                logger.error(f"Error during chat turn: {e}")
+                print(f"\n\033[1;31m✗ Error: {e}\033[0m\n", file=sys.stderr)
+                # Continue chat despite errors
+                continue
+
+        logger.info("Exited interactive chat mode successfully")
+        return 0
+
+    except FileNotFoundError:
+        logger.error(f"Collection '{collection_name}' not found")
+        print(f"\n✗ ERROR: Collection '{collection_name}' not found", file=sys.stderr)
+        print("\nAvailable collections:", file=sys.stderr)
+
+        # Show available collections
+        try:
+            from src.collection import list_collections
+            collections = list_collections(config)
+            if collections:
+                for coll in collections:
+                    print(f"  - {coll['name']}", file=sys.stderr)
+            else:
+                print("  (no collections found)", file=sys.stderr)
+        except:
+            pass
+
+        return 1
+
+    except RuntimeError as e:
+        # Ollama setup errors
+        logger.error(f"Chat mode failed: {e}")
+        print(f"\n✗ ERROR: {e}\n", file=sys.stderr)
+        print("Setup instructions:", file=sys.stderr)
+        print("1. Install Ollama: https://ollama.ai", file=sys.stderr)
+        print("2. Start Ollama: ollama serve", file=sys.stderr)
+        print("3. Download a model: ollama pull llama2:7b", file=sys.stderr)
+        return 1
+
+    except Exception as e:
+        logger.error(f"Chat command failed: {e}")
+        print(f"\n✗ Error: {e}\n", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        return 1
+

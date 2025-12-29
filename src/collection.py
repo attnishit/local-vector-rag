@@ -474,6 +474,215 @@ class Collection:
 
         return results
 
+    def generate_answer(
+        self,
+        query: str,
+        k: int = 5,
+        stream: bool = False,
+        template: str = "qa",
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        ef_search: Optional[int] = None,
+        custom_template_path: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate an answer using LLM with retrieved context (RAG).
+
+        This method combines retrieval and generation:
+        1. Retrieve relevant chunks using vector search
+        2. Prepare context with citation markers
+        3. Generate answer using local LLM (Ollama)
+        4. Calculate confidence score
+        5. Return answer with sources
+
+        Args:
+            query: User question
+            k: Number of context chunks to retrieve (default: 5)
+            stream: Whether to stream response (default: False)
+            template: Prompt template name ("qa", "summarize", "chat")
+            model: LLM model name (default: from config)
+            temperature: Generation temperature 0-2 (default: 0.7)
+            ef_search: HNSW search parameter (default: from config)
+            custom_template_path: Path to custom template file (overrides template)
+
+        Returns:
+            Dictionary with:
+            - query: Original query
+            - answer: Generated text (str or Iterator[str] if streaming)
+            - sources: List of source dictionaries with citation info
+            - confidence: Confidence score (0-1)
+            - metadata: Generation metadata
+
+        Raises:
+            RuntimeError: If Ollama is not running or model not available
+
+        Example:
+            >>> result = collection.generate_answer(
+            ...     "What is HNSW?",
+            ...     k=5,
+            ...     stream=False
+            ... )
+            >>> print(result['answer'])
+            >>> for source in result['sources']:
+            ...     if source['cited']:
+            ...         print(f"[{source['citation_num']}] {source['chunk_id']}")
+        """
+        logger.info(f"Generating answer for query: {query[:100]}")
+
+        # Check cache if enabled and not streaming
+        cache_enabled = self.config.get("generation", {}).get("cache", {}).get("enabled", True)
+        if cache_enabled and not stream:
+            from src.generation.cache import get_global_cache
+
+            cache_config = self.config.get("generation", {}).get("cache", {})
+            cache = get_global_cache(
+                max_size=cache_config.get("max_size", 100),
+                ttl=cache_config.get("ttl", 3600),
+                create_if_missing=True,
+            )
+
+            # Try to get from cache
+            if cache:
+                cached_result = cache.get(
+                    query=query,
+                    collection=self.name,
+                    k=k,
+                    template=template,
+                    model=model,
+                    temperature=temperature,
+                )
+
+                if cached_result:
+                    logger.info(f"Cache hit for query: {query[:100]}")
+                    return cached_result
+
+        # 1. Retrieve relevant chunks
+        search_results = self.search(query, k=k, ef_search=ef_search)
+
+        if not search_results:
+            logger.warning("No search results found")
+            return {
+                "query": query,
+                "answer": "I couldn't find any relevant information to answer this question.",
+                "sources": [],
+                "confidence": 0.0,
+                "metadata": {
+                    "retrieval_count": 0,
+                    "model": model or "none",
+                    "template": template,
+                }
+            }
+
+        # 2. Prepare context with citations
+        from src.generation.citations import prepare_context_with_citations
+        context, sources = prepare_context_with_citations(search_results)
+
+        # 3. Load generation components
+        from src.generation import get_ollama_client, ensure_model_available, DEFAULT_MODEL
+        from jinja2 import Template
+
+        gen_config = self.config.get("generation", {})
+        model_name = model or gen_config.get("model", DEFAULT_MODEL)
+
+        # Get Ollama client
+        client = get_ollama_client()
+        ensure_model_available(client, model_name)
+
+        # 4. Build prompt from template
+        from src.generation.prompts import load_prompt_template, load_custom_template
+        from pathlib import Path
+
+        # Use custom template if provided, otherwise use built-in
+        if custom_template_path:
+            template_path = Path(custom_template_path)
+            if not template_path.exists():
+                logger.error(f"Custom template not found: {custom_template_path}")
+                raise FileNotFoundError(f"Template file not found: {custom_template_path}")
+
+            prompt_template = load_custom_template(template_path)
+            logger.info(f"Using custom template: {custom_template_path}")
+        else:
+            try:
+                prompt_template = load_prompt_template(template)
+            except ValueError as e:
+                logger.warning(f"Invalid template '{template}': {e}, falling back to 'qa'")
+                prompt_template = load_prompt_template("qa")
+
+        prompt = prompt_template.render(query=query, context=context)
+
+        logger.debug(f"Prompt length: {len(prompt)} chars")
+
+        # 5. Generate answer
+        try:
+            answer = client.generate(
+                prompt=prompt,
+                model=model_name,
+                temperature=temperature,
+                stream=stream,
+                max_tokens=gen_config.get("max_tokens"),
+            )
+
+            # If not streaming, mark which sources were cited
+            if not stream:
+                from src.generation.citations import mark_cited_sources
+                sources = mark_cited_sources(sources, answer)
+
+        except Exception as e:
+            logger.error(f"Generation failed: {e}")
+            return {
+                "query": query,
+                "answer": f"Error generating answer: {str(e)}",
+                "sources": sources,
+                "confidence": 0.0,
+                "metadata": {
+                    "error": str(e),
+                    "retrieval_count": len(search_results),
+                }
+            }
+
+        # 6. Calculate confidence
+        from src.generation.confidence import calculate_confidence
+        confidence = calculate_confidence(search_results, query)
+
+        # 7. Build result
+        result = {
+            "query": query,
+            "answer": answer,
+            "sources": sources,
+            "confidence": confidence,
+            "metadata": {
+                "retrieval_count": len(search_results),
+                "model": model_name,
+                "temperature": temperature,
+                "template": template,
+                "stream": stream,
+            }
+        }
+
+        logger.info(
+            f"Answer generated: confidence={confidence:.2f}, "
+            f"sources={len(sources)}, streaming={stream}"
+        )
+
+        # Cache result if enabled and not streaming
+        if cache_enabled and not stream:
+            from src.generation.cache import get_global_cache
+
+            cache = get_global_cache(create_if_missing=False)
+            if cache:
+                cache.set(
+                    query=query,
+                    value=result,
+                    collection=self.name,
+                    k=k,
+                    template=template,
+                    model=model,
+                    temperature=temperature,
+                )
+                logger.debug(f"Cached result for query: {query[:100]}")
+
+        return result
+
     def info(self) -> Dict[str, Any]:
         """
         Get information about the collection.

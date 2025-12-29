@@ -1,7 +1,7 @@
 # RAG CLI User Guide
 
-**Version**: 0.1.0
-**Last Updated**: 2025-12-28
+**Version**: 0.2.0
+**Last Updated**: 2025-12-29
 
 ---
 
@@ -11,6 +11,11 @@
 2. [Installation](#installation)
 3. [Quick Start](#quick-start)
 4. [Command Reference](#command-reference)
+   - [Setup Commands](#setup-commands)
+   - [Collection Commands](#collection-commands)
+   - [Search Commands](#search-commands)
+   - [LLM Generation Commands (NEW!)](#llm-generation-commands-new)
+   - [Utility Commands](#utility-commands)
 5. [Common Workflows](#common-workflows)
 6. [Troubleshooting](#troubleshooting)
 7. [Advanced Usage](#advanced-usage)
@@ -23,10 +28,20 @@ The RAG CLI is a command-line interface for the Local Vector RAG Database system
 
 - Create and manage document collections
 - Perform semantic search on your documents
+- **Generate AI-powered answers with local LLMs (NEW!)**
+- **Interactive chat mode with conversation history (NEW!)**
 - Run performance benchmarks
 - Preview and analyze document chunks
 
 The CLI is designed to work globally from any directory, just like familiar tools such as `git`, `docker`, or `npm`.
+
+**What's New in 0.2.0:**
+- 🤖 Local LLM answer generation with Ollama
+- 💬 Interactive chat mode with multi-turn conversations
+- 📑 Automatic citation marking in generated answers
+- 🎯 Confidence scoring for answer quality
+- 🎨 Custom prompt templates support
+- ⚡ Answer caching for repeated queries
 
 ---
 
@@ -973,6 +988,7 @@ logging:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 0.2.0 | 2025-12-29 | Added LLM generation: `generate` and `chat` commands, custom templates, answer caching |
 | 0.1.0 | 2025-12-28 | Initial CLI release with core commands |
 
 ---
@@ -1002,6 +1018,13 @@ rag search "query" --top-k 10                 # Get more results
 rag search "query" --min-score 0.5            # Filter by score
 rag search "query" --output results.json      # Export results
 
+# Generation (NEW!)
+rag generate "question" --collection <name>   # Generate answer
+rag generate "question" --stream              # Stream response
+rag generate "question" --model llama2:13b    # Use different model
+rag chat --collection <name>                  # Interactive chat mode
+rag generate "question" --custom-template <file>  # Custom prompt
+
 # Utilities
 rag preview <file>                            # Preview chunks
 rag embed-demo "text"                         # Test embeddings
@@ -1016,3 +1039,437 @@ rag benchmark --compare-sizes                 # Compare algorithms
 ---
 
 **End of User Guide**
+
+---
+
+## LLM Generation Commands (NEW!)
+
+The RAG system now includes complete answer generation capabilities using local LLMs via Ollama. Generate AI-powered answers with citations, chat interactively, and customize prompts—all running 100% offline.
+
+### Prerequisites: Ollama Setup
+
+Before using generation commands, you need to set up Ollama:
+
+```bash
+# 1. Install Ollama (macOS)
+brew install ollama
+
+# Or download from https://ollama.ai for other platforms
+
+# 2. Start Ollama server (in a separate terminal)
+ollama serve
+
+# 3. Download a model (one-time, ~4GB)
+ollama pull llama2:7b
+
+# Verify it's working
+ollama list
+```
+
+**Important**: Keep `ollama serve` running in a terminal while using generation commands.
+
+---
+
+### `rag generate` - Generate Answers with Citations
+
+Generate AI-powered answers from your collection with automatic citations and confidence scoring.
+
+#### Basic Usage
+
+```bash
+rag generate "your question" --collection <collection_name>
+```
+
+#### Examples
+
+```bash
+# Basic answer generation
+rag generate "How does HNSW work?" --collection research_papers
+
+# Stream responses word-by-word (recommended)
+rag generate "Explain vector databases" --collection my_docs --stream
+
+# Retrieve more context for better answers
+rag generate "What is semantic search?" --collection docs --top-k 10
+
+# Use different prompt templates
+rag generate "Summarize the key points" --collection notes --template summarize
+
+# Use a different model
+rag generate "Explain quantum computing" --collection physics --model llama2:13b
+
+# Adjust creativity (temperature)
+rag generate "Write a creative explanation" --collection docs --temperature 1.2
+
+# Use custom prompt template
+rag generate "Explain this concept" \
+  --collection my_docs \
+  --custom-template templates/expert_tutor.j2
+```
+
+#### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `query` | string | *required* | Question to answer |
+| `--collection` | string | *required* | Collection to search |
+| `--top-k` | int | 5 | Number of chunks to retrieve |
+| `--stream` | flag | false | Stream response word-by-word |
+| `--template` | string | qa | Prompt template: `qa`, `summarize`, `chat` |
+| `--custom-template` | path | - | Path to custom template file |
+| `--model` | string | llama2:7b | LLM model to use |
+| `--temperature` | float | 0.7 | Creativity (0.0=factual, 2.0=creative) |
+
+#### Output Format
+
+```
+Answer:
+────────────────────────────────────────────────────────────────
+HNSW (Hierarchical Navigable Small World) is a graph-based
+algorithm that provides fast approximate nearest neighbor search
+[1]. It uses multiple layers of graphs, where higher layers
+contain long-range connections for quick navigation [2]. This
+achieves O(log n) search time while maintaining high recall [1].
+
+Sources:
+[1] hnsw_paper_chunk_3 (score: 0.92) - "HNSW uses hierarchical..."
+[2] algorithms_overview_chunk_7 (score: 0.87) - "Multi-layer graph..."
+
+Confidence: 0.89 (High)
+```
+
+#### Tips for Best Results
+
+1. **Use streaming** (`--stream`) for better user experience with long answers
+2. **Increase top-k** (10-15) for complex questions requiring more context
+3. **Adjust temperature**:
+   - 0.0-0.3: Factual, deterministic answers
+   - 0.5-0.8: Balanced (default)
+   - 1.0-2.0: Creative, varied responses
+4. **Choose the right template**:
+   - `qa`: Questions requiring specific answers
+   - `summarize`: Condensing information
+   - `chat`: Conversational, contextual responses
+
+#### Custom Prompt Templates
+
+Create custom templates using Jinja2 syntax:
+
+```jinja2
+# templates/expert.j2
+You are an expert in {{ domain | default("the field") }}.
+
+Context:
+{{ context }}
+
+Question: {{ query }}
+
+Provide a detailed technical explanation with citations [1], [2]:
+```
+
+Use it:
+```bash
+rag generate "Explain HNSW" \
+  --collection docs \
+  --custom-template templates/expert.j2
+```
+
+---
+
+### `rag chat` - Interactive Chat Mode
+
+Start an interactive conversation with your document collection. Maintains conversation history for context-aware responses.
+
+#### Basic Usage
+
+```bash
+rag chat --collection <collection_name>
+```
+
+#### Examples
+
+```bash
+# Start chat session
+rag chat --collection research_papers
+
+# Show confidence scores and source statistics
+rag chat --collection my_docs --verbose
+
+# Retrieve more context per query
+rag chat --collection docs --top-k 10
+
+# Use a larger, higher-quality model
+rag chat --collection knowledge_base --model llama2:13b
+```
+
+#### Interactive Commands
+
+Once in chat mode, you can use these commands:
+
+| Command | Description |
+|---------|-------------|
+| Type your question | Get an AI-generated answer |
+| `exit` or `quit` | Exit chat mode |
+| `clear` | Reset conversation history |
+| `stats` | Show session statistics |
+| `help` | Show help message |
+
+#### Session Example
+
+```
+============================================================
+                Chat Mode - Collection: research_papers
+============================================================
+
+Commands:
+  Type your question to get an answer
+  'exit' or 'quit' - Exit chat mode
+  'clear' - Reset conversation history
+  'stats' - Show session statistics
+  'help' - Show this help message
+
+============================================================
+
+You: What is HNSW?
+Assistant: HNSW (Hierarchical Navigable Small World) is a graph-based
+algorithm for approximate nearest neighbor search [1]. It organizes
+data points in a multi-layer graph structure...
+
+You: How does it compare to brute force?
+Assistant: Based on our previous discussion about HNSW, it's significantly
+faster than brute force search. While brute force has O(n) complexity,
+HNSW achieves O(log n) search time [2]...
+
+You: stats
+
+Session Statistics:
+  Session ID: 20251229_143022
+  Turns: 2 (max: 10)
+  Tokens: 487 (max: 4096)
+  Created: 2025-12-29T14:30:22
+  Updated: 2025-12-29T14:32:15
+
+You: exit
+
+👋 Exiting chat mode...
+```
+
+#### Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `--collection` | string | *required* | Collection to search |
+| `--top-k` | int | 5 | Chunks to retrieve per query |
+| `--model` | string | llama2:7b | LLM model to use |
+| `--temperature` | float | 0.7 | Generation temperature |
+| `--verbose` | flag | false | Show confidence & source stats |
+
+#### Features
+
+- **Conversation History**: Maintains context from previous turns
+- **Auto-Pruning**: Keeps last 10 turns (configurable in config.yaml)
+- **Token Management**: Prevents context window overflow
+- **Colored Output**: User prompts in blue, assistant in green
+- **Session Saving**: Optionally save conversations (enable in config.yaml)
+
+#### Configuration
+
+Edit `config.yaml` to customize chat behavior:
+
+```yaml
+generation:
+  conversation:
+    max_tokens: 4096      # Maximum context window
+    max_turns: 10         # Maximum turns to remember
+    save_sessions: true   # Save chat logs to data/sessions/
+```
+
+#### Use Cases
+
+1. **Research Assistant**: Ask follow-up questions about documents
+2. **Documentation Helper**: Interactive Q&A about codebases
+3. **Learning Tool**: Conversational exploration of topics
+4. **Debugging**: Discuss error messages with context
+5. **Content Analysis**: Iterative refinement of queries
+
+#### Tips
+
+1. **Use `clear`** if the conversation goes off-track
+2. **Check `stats`** to monitor context usage
+3. **Enable `--verbose`** to see confidence scores
+4. **Start broad**, then ask specific follow-ups
+5. **Reference previous answers** - the model remembers!
+
+---
+
+### Answer Caching
+
+The system automatically caches generated answers to speed up repeated queries.
+
+#### How It Works
+
+- **LRU Cache**: Keeps 100 most recent answers (configurable)
+- **TTL**: Cached answers expire after 1 hour (configurable)
+- **Automatic**: Works transparently, no action needed
+- **Smart Keys**: Considers query, collection, k, model, temperature
+
+#### Benefits
+
+- **Instant responses** for repeated questions
+- **Reduced compute** for common queries
+- **Lower latency** in interactive sessions
+
+#### Configuration
+
+```yaml
+# config.yaml
+generation:
+  cache:
+    enabled: true    # Enable caching
+    max_size: 100    # Cache up to 100 answers
+    ttl: 3600        # Expire after 1 hour (seconds)
+```
+
+#### Cache Statistics
+
+Check cache hit rate in verbose mode or logs:
+```
+Cache hit for query: "What is HNSW?" (saved 2.3s)
+```
+
+---
+
+### Troubleshooting Generation Commands
+
+#### "Ollama not found" Error
+
+```
+✗ ERROR: Ollama not found. Install from: https://ollama.ai
+```
+
+**Solution**:
+```bash
+# macOS
+brew install ollama
+
+# Other platforms
+# Download from https://ollama.ai
+```
+
+#### "Ollama server not running" Error
+
+```
+✗ ERROR: Ollama server not running. Start with: ollama serve
+```
+
+**Solution**:
+```bash
+# In a separate terminal, run:
+ollama serve
+
+# Keep this terminal open while using RAG commands
+```
+
+#### "Model not downloaded" Error
+
+```
+✗ ERROR: Model 'llama2:7b' not downloaded.
+Download with: ollama pull llama2:7b
+```
+
+**Solution**:
+```bash
+ollama pull llama2:7b
+
+# Or use a different model you've downloaded
+rag generate "query" --model llama2:7b
+```
+
+#### Slow Generation
+
+**Solutions**:
+1. **Use a smaller model**: `--model phi:2.7b`
+2. **Reduce context**: `--top-k 3`
+3. **Lower max_tokens** in config.yaml
+4. **Enable streaming**: `--stream` (doesn't speed up, but feels faster)
+
+#### Low Quality Answers
+
+**Solutions**:
+1. **Use a larger model**: `--model llama2:13b`
+2. **Retrieve more context**: `--top-k 10`
+3. **Adjust temperature**: `--temperature 0.3` (more focused)
+4. **Try different template**: `--template chat`
+5. **Improve your collection**: Index more relevant documents
+
+#### Generation Timeout
+
+```
+✗ Error: Request timed out after 120 seconds
+```
+
+**Solution**:
+```yaml
+# Increase timeout in config.yaml
+generation:
+  timeout: 300  # 5 minutes
+```
+
+---
+
+### Advanced: Custom Prompt Engineering
+
+#### Template Variables
+
+Available variables in Jinja2 templates:
+
+| Variable | Type | Description |
+|----------|------|-------------|
+| `query` | string | User's question |
+| `context` | string | Retrieved chunks with [1], [2] markers |
+| `history` | list | Previous conversation turns (chat template only) |
+
+#### Example Templates
+
+**Concise Answers**:
+```jinja2
+# templates/concise.j2
+Context: {{ context }}
+Question: {{ query }}
+
+Provide a brief 1-2 sentence answer with citations:
+```
+
+**Code-Focused**:
+```jinja2
+# templates/code.j2
+You are a senior software engineer.
+
+Documentation:
+{{ context }}
+
+Question: {{ query }}
+
+Provide code examples and technical details with citations [1], [2]:
+```
+
+**ELI5 (Explain Like I'm 5)**:
+```jinja2
+# templates/eli5.j2
+Context: {{ context }}
+Question: {{ query }}
+
+Explain this concept in simple terms that a 5-year-old would understand.
+Use everyday analogies and avoid jargon:
+```
+
+#### Using Custom Templates
+
+```bash
+rag generate "your question" \
+  --collection docs \
+  --custom-template templates/your_template.j2
+```
+
+---
+

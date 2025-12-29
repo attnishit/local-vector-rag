@@ -27,9 +27,15 @@ This project implements the complete RAG pipeline from scratch, focusing on the 
 - 🔍 **Two Search Algorithms:**
   - **Brute-force** — Exact nearest neighbor search (100% recall)
   - **HNSW** — Approximate search based on [Malkov & Yashunin (2018)](https://arxiv.org/abs/1603.09320)
+- 🤖 **Local LLM Generation (NEW!)** — Complete RAG with Ollama (100% offline, no API keys)
+  - Answer generation with citations
+  - Interactive chat mode with conversation history
+  - Custom prompt templates
+  - Answer caching for repeated queries
+  - Confidence scoring
 - 💾 **Persistent Collections** — Disk-based storage with incremental updates
 - 📊 **Benchmarking Suite** — Compare recall, latency, and scalability
-- 🎯 **Production-Ready CLI** — Global `rag` command for seamless workflow (NEW!)
+- 🎯 **Production-Ready CLI** — Global `rag` command for seamless workflow
 
 ---
 
@@ -72,10 +78,16 @@ rag index ~/Documents/research --name research_papers --algorithm hnsw
 # 3. Search your collection
 rag search "vector database algorithms" --collection research_papers --top-k 5
 
-# 4. List all collections
+# 4. Generate answers with LLM (NEW!)
+rag generate "How does HNSW work?" --collection research_papers --stream
+
+# 5. Interactive chat mode (NEW!)
+rag chat --collection research_papers
+
+# 6. List all collections
 rag list
 
-# 5. View collection details
+# 7. View collection details
 rag info research_papers
 ```
 
@@ -113,6 +125,18 @@ python main.py list
 │   Results   │◀────│    Search    │◀────│ Vector Index│
 │  (Ranked)   │     │  (Cosine)    │     │  (HNSW/BF)  │
 └─────────────┘     └──────────────┘     └─────────────┘
+                            │
+                            ▼
+                    ┌──────────────┐
+                    │  LLM (Ollama)│
+                    │   Citations  │
+                    └──────────────┘
+                            │
+                            ▼
+                    ┌──────────────┐
+                    │    Answer    │
+                    │ with Sources │
+                    └──────────────┘
 ```
 
 **Pipeline Steps:**
@@ -121,6 +145,7 @@ python main.py list
 2. **Embedding** → Convert chunks to vectors using `all-MiniLM-L6-v2` (L2 normalized)
 3. **Indexing** → Build searchable index with HNSW graph or brute-force array
 4. **Query** → Embed query, find k-nearest neighbors, return ranked results
+5. **Generation (Optional)** → Use local LLM to generate answers with retrieved context
 
 ### The HNSW Algorithm
 
@@ -144,6 +169,102 @@ This implementation is based on **"Efficient and robust approximate nearest neig
 - `ef_search=50` — Candidate list size during query (tune for recall/speed tradeoff)
 
 See `src/vectorstore/hnsw.py` for detailed implementation with inline explanations.
+
+---
+
+## LLM Generation (NEW!)
+
+This system now includes **complete RAG capabilities** with local LLM generation using **Ollama**. Generate answers from your documents with citations, confidence scores, and conversation history—all running 100% offline.
+
+### Features
+
+- ✅ **100% Local/Offline** — No API keys, no external services, no internet required after setup
+- ✅ **Answer Generation** — Get AI-generated answers with automatic citation markers [1], [2]
+- ✅ **Interactive Chat Mode** — Multi-turn conversations with conversation history
+- ✅ **Streaming Responses** — Word-by-word output for better UX
+- ✅ **Confidence Scoring** — Know how reliable each answer is
+- ✅ **Custom Prompt Templates** — Tailor prompts for your use case
+- ✅ **Answer Caching** — Speeds up repeated queries
+
+### Setup (One-Time)
+
+```bash
+# 1. Install Ollama (macOS)
+brew install ollama
+
+# Or download from https://ollama.ai for other platforms
+
+# 2. Start Ollama server
+ollama serve
+
+# 3. Download a model (one-time, ~4GB)
+ollama pull llama2:7b
+
+# Done! Model is stored locally and works offline
+```
+
+### Quick Examples
+
+```bash
+# Generate a single answer
+rag generate "How does HNSW improve search performance?" \
+  --collection research_papers \
+  --stream
+
+# Interactive chat with conversation history
+rag chat --collection research_papers
+
+# Use custom prompt template
+rag generate "Explain vector databases" \
+  --collection my_docs \
+  --custom-template templates/expert.j2
+
+# Adjust generation parameters
+rag generate "What is semantic search?" \
+  --collection docs \
+  --model llama2:7b \
+  --temperature 0.5 \
+  --top-k 10
+```
+
+### Available Models
+
+| Model | Size | RAM | Speed | Quality |
+|-------|------|-----|-------|---------|
+| `phi:2.7b` | 1.6GB | 4GB | Fast | Good |
+| `llama2:7b` | 3.8GB | 8GB | Medium | Excellent ⭐ |
+| `mistral:7b` | 4.1GB | 8GB | Medium | Excellent |
+| `llama2:13b` | 7.4GB | 16GB | Slow | Best |
+
+Download any model with: `ollama pull <model_name>`
+
+⭐ = Default model
+
+### How It Works
+
+1. **Retrieve** → Find top-k relevant chunks from your collection
+2. **Prepare Context** → Add citation markers [1], [2] to chunks
+3. **Generate** → Local LLM generates answer using context
+4. **Mark Citations** → Track which sources were actually used
+5. **Calculate Confidence** → Score based on retrieval quality
+
+**Example Output:**
+```
+Answer:
+────────────────────────────────────────────────────────────────
+HNSW (Hierarchical Navigable Small World) improves search
+performance by using a multi-layer graph structure [1]. Unlike
+brute-force search which compares against all vectors, HNSW
+navigates through layers to find approximate nearest neighbors
+in O(log n) time [2]. This provides 10-100x speedup while
+maintaining 90-99% recall [1].
+
+Sources:
+[1] hnsw_paper_chunk_5 (score: 0.89) - "HNSW uses hierarchical layers..."
+[2] algorithms_doc_chunk_12 (score: 0.85) - "Time complexity analysis..."
+
+Confidence: 0.87 (High)
+```
 
 ---
 
@@ -172,6 +293,8 @@ After installation with `pip install -e .` and activating the virtual environmen
 | `rag` | Validate system setup | `rag` |
 | `rag index` | Create collection from documents | `rag index ~/docs --name my_collection` |
 | `rag search` | Search a collection | `rag search "query" --collection my_docs` |
+| `rag generate` | Generate answer with LLM (NEW!) | `rag generate "question" --collection my_docs` |
+| `rag chat` | Interactive chat mode (NEW!) | `rag chat --collection my_docs` |
 | `rag list` | List all collections | `rag list` |
 | `rag info` | Show collection details | `rag info my_collection` |
 | `rag delete` | Delete a collection | `rag delete old_collection` |
@@ -390,8 +513,29 @@ Key files to read:
 
 ## Use Cases
 
-### 1. Semantic Search Application (with CLI)
-Build a production RAG system using the global command:
+### 1. Complete RAG System with AI Answers (NEW!)
+Build a production RAG system with answer generation:
+
+```bash
+# Setup Ollama (one-time)
+brew install ollama
+ollama serve
+ollama pull llama2:7b
+
+# Index your documentation
+rag index ~/company/docs --name company_knowledge --algorithm hnsw
+
+# Get AI-generated answers with citations
+rag generate "How do I configure authentication?" \
+  --collection company_knowledge \
+  --stream
+
+# Interactive chat mode for follow-up questions
+rag chat --collection company_knowledge
+```
+
+### 2. Semantic Search Application (CLI)
+Build a search engine using the global command:
 
 ```bash
 # Index your documentation
@@ -404,7 +548,7 @@ rag search "How do I configure authentication?" --collection company_knowledge
 rag search "API rate limits" --collection company_knowledge --output api_info.json
 ```
 
-### 2. Programmatic Access (Python API)
+### 3. Programmatic Access (Python API)
 For custom applications, use the Python API directly:
 
 ```python
@@ -418,24 +562,48 @@ results = collection.search("How does HNSW work?", k=5)
 for result in results:
     print(f"Score: {result['score']:.3f}")
     print(f"Text: {result['metadata']['text']}\n")
+
+# Generate answer with LLM (NEW!)
+answer_result = collection.generate_answer(
+    query="How does HNSW work?",
+    k=5,
+    stream=False,
+    template="qa"
+)
+
+print(f"Answer: {answer_result['answer']}")
+print(f"Confidence: {answer_result['confidence']:.2f}")
+
+# Show cited sources
+for source in answer_result['sources']:
+    if source['cited']:
+        print(f"[{source['citation_num']}] {source['chunk_id']}")
 ```
 
-### 3. Research & Experimentation
+### 4. Research & Experimentation
 - Compare similarity metrics (cosine, L2, dot product)
 - Test different chunking strategies
 - Benchmark custom embedding models
 - Tune HNSW parameters for your dataset
+- Experiment with different LLM models and prompts (NEW!)
 
 ```bash
 # Test different HNSW parameters
 rag search "query" --ef-search 10   # Fast, lower recall
 rag search "query" --ef-search 100  # Slower, higher recall
 
+# Compare different LLM models
+rag generate "query" --model llama2:7b    # Default, good balance
+rag generate "query" --model llama2:13b    # Slower, better quality
+
+# Test custom prompts
+rag generate "query" --custom-template my_expert_prompt.j2
+
 # Run comprehensive benchmarks
 rag benchmark --compare-sizes --dataset-sizes 1000 5000 10000
 ```
 
-### 4. Educational Tool
+### 5. Educational Tool
 Great for teaching:
 - "This is how vector databases work internally"
 - "Here's the tradeoff between exact and approximate search"

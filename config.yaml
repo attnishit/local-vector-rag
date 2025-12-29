@@ -138,6 +138,55 @@ query:
   # HNSW search parameter (null = use index default)
   ef_search: null
 
+# LLM Generation (Ollama-based)
+generation:
+  # Enable/disable LLM generation
+  enabled: true
+
+  # Provider: "ollama" (local) or future: "openai", "anthropic"
+  provider: "ollama"
+
+  # Ollama server URL
+  base_url: "http://localhost:11434"
+
+  # Default model to use
+  # Options: "llama2:7b", "mistral:7b", "phi:2.7b", "llama2:13b"
+  model: "llama2:7b"
+
+  # Generation parameters
+  temperature: 0.7  # Sampling temperature (0.0-2.0, higher = more creative)
+  max_tokens: 512   # Maximum tokens to generate (null = no limit)
+
+  # Enable streaming responses (word-by-word output)
+  stream: true
+
+  # Request timeout in seconds
+  timeout: 120
+
+  # Default prompt template to use
+  # Options: "qa", "summarize", "chat"
+  default_template: "qa"
+
+  # Number of context chunks to retrieve for generation
+  context_chunks: 5
+
+  # Conversation history settings (for chat mode)
+  conversation:
+    max_tokens: 4096  # Maximum tokens to keep in history
+    max_turns: 10     # Maximum conversation turns to remember
+    save_sessions: false  # Save conversation sessions to disk
+
+  # Confidence scoring settings
+  confidence:
+    enabled: true
+    min_score_threshold: 0.5  # Minimum retrieval score to consider
+
+  # Answer caching settings (speeds up repeated queries)
+  cache:
+    enabled: true        # Enable answer caching
+    max_size: 100        # Maximum number of cached answers
+    ttl: 3600            # Time-to-live in seconds (1 hour)
+
 # Stage 11: Evaluation & Benchmarking
 benchmarks:
   # Default dataset size for benchmarks

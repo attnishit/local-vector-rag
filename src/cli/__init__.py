@@ -19,6 +19,8 @@ from src.cli.commands import (
     cmd_benchmark,
     cmd_delete,
     cmd_info,
+    cmd_generate,
+    cmd_chat,
 )
 
 
@@ -275,6 +277,91 @@ For more information, visit: https://github.com/yourusername/local-vector-rag
             help="k value for comparison mode (default: 5)",
         )
 
+        # Generate command (RAG)
+        generate_parser = subparsers.add_parser(
+            "generate",
+            help="Generate answer using RAG (retrieval + LLM)"
+        )
+        generate_parser.add_argument(
+            "query",
+            type=str,
+            help="Question to answer"
+        )
+        generate_parser.add_argument(
+            "--collection",
+            type=str,
+            required=True,
+            help="Collection to search"
+        )
+        generate_parser.add_argument(
+            "--top-k",
+            type=int,
+            default=5,
+            help="Number of chunks to retrieve (default: 5)"
+        )
+        generate_parser.add_argument(
+            "--stream",
+            action="store_true",
+            help="Stream response word-by-word"
+        )
+        generate_parser.add_argument(
+            "--template",
+            type=str,
+            default="qa",
+            choices=["qa", "summarize", "chat"],
+            help="Prompt template to use (default: qa)"
+        )
+        generate_parser.add_argument(
+            "--custom-template",
+            type=str,
+            help="Path to custom prompt template file (.txt or .j2)"
+        )
+        generate_parser.add_argument(
+            "--model",
+            type=str,
+            help="Override default LLM model"
+        )
+        generate_parser.add_argument(
+            "--temperature",
+            type=float,
+            default=0.7,
+            help="Generation temperature 0-2 (default: 0.7)"
+        )
+
+        # Chat command (interactive mode)
+        chat_parser = subparsers.add_parser(
+            "chat",
+            help="Interactive chat mode with conversation history"
+        )
+        chat_parser.add_argument(
+            "--collection",
+            type=str,
+            required=True,
+            help="Collection to search"
+        )
+        chat_parser.add_argument(
+            "--top-k",
+            type=int,
+            default=5,
+            help="Number of chunks to retrieve per query (default: 5)"
+        )
+        chat_parser.add_argument(
+            "--model",
+            type=str,
+            help="Override default LLM model"
+        )
+        chat_parser.add_argument(
+            "--temperature",
+            type=float,
+            default=0.7,
+            help="Generation temperature 0-2 (default: 0.7)"
+        )
+        chat_parser.add_argument(
+            "--verbose",
+            action="store_true",
+            help="Show confidence scores and source statistics"
+        )
+
         # Parse arguments
         args = parser.parse_args()
 
@@ -307,6 +394,10 @@ For more information, visit: https://github.com/yourusername/local-vector-rag
             return cmd_delete(args, config, logger)
         elif args.command == "benchmark":
             return cmd_benchmark(args, config, logger)
+        elif args.command == "generate":
+            return cmd_generate(args, config, logger)
+        elif args.command == "chat":
+            return cmd_chat(args, config, logger)
         else:
             # No command specified - validate setup
             validate_setup(config, logger)
