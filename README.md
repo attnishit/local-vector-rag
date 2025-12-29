@@ -512,16 +512,5 @@ SOFTWARE.
 
 ---
 
-## Acknowledgments
-
-Built with 💙 for learning and understanding.
-
-Special thanks to:
-- [HNSW authors](https://arxiv.org/abs/1603.09320) for the groundbreaking algorithm
-- [Sentence-Transformers](https://www.sbert.net/) team for accessible embeddings
-- Open-source community for inspiration
-
----
-
 **Questions? Found a bug? Want to contribute?**
 👉 [Open an issue](https://github.com/yourusername/rag/issues) or start a discussion!
