@@ -93,20 +93,21 @@ rag info research_papers
 
 That's it! Your documents are now semantically searchable.
 
-### Alternative: Using Python Scripts
+### Alternative: Using Python Script (Legacy)
 
-You can also use the original Python interface:
+For validation and benchmarking, you can also use `main.py`:
 
 ```bash
-# Create a collection
-python main.py index data/raw/samples --name my_docs --algorithm hnsw
+# Validate system setup
+python main.py
 
-# Search
-python main.py search "query text" --collection my_docs --top-k 5
+# Run benchmarks
+python main.py benchmark --dataset-size 1000
 
-# List collections
-python main.py list
+# For all other operations, use the 'rag' CLI
 ```
+
+**Note:** All document indexing, searching, and generation commands have been moved to the `rag` CLI for better user experience.
 
 ---
 
@@ -330,65 +331,6 @@ rag benchmark --help
 
 ---
 
-## Commands (Python Script Method)
-
-> **Note:** For CLI commands, see the [CLI Reference](#cli-reference) section above.
-
-### Index: Create a Collection
-
-```bash
-python main.py index <directory> [options]
-```
-
-**Options:**
-- `--name <name>` — Collection name (default: my_collection)
-- `--algorithm <hnsw|brute_force>` — Search algorithm (default: hnsw)
-- `--test-query <text>` — Run test query after indexing
-
-**Example:**
-```bash
-# Index all documents in a directory with HNSW
-python main.py index data/raw/samples --name research_papers --algorithm hnsw
-
-# Test immediately after indexing
-python main.py index data/raw --name docs --test-query "machine learning"
-```
-
-### Search: Query a Collection
-
-```bash
-python main.py search "<query>" [options]
-```
-
-**Options:**
-- `--collection <name>` — Collection to search (default: my_collection)
-- `--top-k <n>` — Number of results (default: 5)
-- `--min-score <float>` — Minimum similarity threshold (default: 0.0)
-- `--ef-search <n>` — HNSW search parameter (higher = better recall)
-- `--output <file>` — Save results to JSON file
-
-**Example:**
-```bash
-# Basic search
-python main.py search "neural networks" --collection research_papers
-
-# High-recall search with score filtering
-python main.py search "deep learning" --top-k 10 --min-score 0.5 --ef-search 100
-
-# Export results
-python main.py search "transformers" --output results.json
-```
-
-### List: View All Collections
-
-```bash
-python main.py list
-```
-
-Shows all collections with metadata (algorithm, document count, chunk count, creation date).
-
----
-
 ## Configuration
 
 Edit `config.yaml` to customize behavior:
@@ -418,17 +360,23 @@ vectorstore:
 
 ## Benchmarking
 
-Compare algorithms and measure performance:
+Compare algorithms and measure performance using either the `rag` CLI or `python main.py`:
 
 ```bash
-# Quick benchmark (1,000 vectors, 100 queries)
+# Using the rag CLI (recommended)
+rag benchmark
+
+# Or using python main.py (legacy)
 python main.py benchmark
 
+# Quick benchmark (1,000 vectors, 100 queries)
+rag benchmark --dataset-size 1000
+
 # Large-scale test
-python main.py benchmark --dataset-size 10000 --n-queries 500
+rag benchmark --dataset-size 10000 --n-queries 500
 
 # Compare scalability across sizes
-python main.py benchmark --compare-sizes --sizes 100,1000,5000,10000
+rag benchmark --compare-sizes --dataset-sizes 100 1000 5000 10000
 ```
 
 **Sample Results (1,000 vectors, k=5):**
@@ -446,12 +394,13 @@ python main.py benchmark --compare-sizes --sizes 100,1000,5000,10000
 
 ```
 rag/
-├── main.py                  # Legacy Python CLI entry point
+├── main.py                  # Legacy entry point (validation & benchmarks only)
 ├── config.yaml              # System configuration
+├── pyproject.toml           # Package metadata & dependencies
 ├── src/
-│   ├── cli/                 # Global CLI command (NEW!)
-│   │   ├── __init__.py      # CLI entry point
-│   │   ├── commands.py      # Command implementations
+│   ├── cli/                 # Modern CLI interface (PRIMARY)
+│   │   ├── __init__.py      # CLI entry point ('rag' command)
+│   │   ├── commands.py      # All command implementations
 │   │   └── USER_GUIDE.md    # Detailed CLI documentation
 │   ├── collection.py        # High-level collection API
 │   ├── ingestion/           # Document loading & chunking
@@ -465,6 +414,11 @@ rag/
 │   │   ├── brute_force.py   # Exact search (O(n) baseline)
 │   │   ├── hnsw.py          # HNSW approximate search
 │   │   └── similarity.py    # Distance metrics (cosine, L2, dot)
+│   ├── generation/          # LLM answer generation (NEW!)
+│   │   ├── model.py         # Ollama client management
+│   │   ├── prompts.py       # Prompt templates
+│   │   ├── citations.py     # Citation extraction
+│   │   └── conversation.py  # Multi-turn chat history
 │   ├── query/               # Query pipeline
 │   └── benchmarks/          # Performance evaluation
 ├── data/
@@ -472,7 +426,7 @@ rag/
 │   ├── processed/           # Chunked documents (JSON)
 │   ├── embeddings/          # Vector embeddings (NPZ)
 │   └── indexes/             # HNSW graphs (pickle)
-└── tests/                   # Unit tests
+└── tests/                   # Unit tests (TODO)
 ```
 
 ---
@@ -613,11 +567,11 @@ Great for teaching:
 # Show students how documents are chunked
 rag preview research_paper.pdf --num-chunks 10
 
-# Demonstrate embedding generation
-rag embed-demo "machine learning algorithms"
+# Compare algorithm performance with detailed stats
+rag benchmark --verbose --dataset-size 1000
 
-# Compare algorithm performance
-rag benchmark --verbose
+# Compare scalability across different dataset sizes
+rag benchmark --compare-sizes --dataset-sizes 100 1000 5000
 ```
 
 ---
